@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import sys
 from xml.sax.saxutils import escape
+
+# Streamlit Community Cloud runs on Linux without a usable desktop display.
+# Force OSMesa before importing MuJoCo: the hosting environment may already
+# define MUJOCO_GL=glfw, so setdefault() is not sufficient.  This application
+# only needs offscreen image rendering.  macOS and Windows remain unchanged.
+if sys.platform.startswith("linux"):
+    os.environ["MUJOCO_GL"] = "osmesa"
+    os.environ.setdefault("PYOPENGL_PLATFORM", "osmesa")
+    print("[robot_sim] MuJoCo offscreen backend: OSMesa")
+
 import numpy as np
 import mujoco
 

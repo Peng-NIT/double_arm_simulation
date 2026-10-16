@@ -28,6 +28,14 @@ cd "/Users/pengsu/Project/Application_2026/仿真实验申请"
 streamlit run app.py
 ```
 
+## Streamlit Community Cloud 部署环境
+
+- 部署入口文件选择 `streamlit_app/app.py`（如果仓库根目录就是本目录，则选择 `app.py`）。
+- 在 **Advanced settings** 中选择 **Python 3.12**，不要使用 Python 3.14。
+- `packages.txt` 已包含 MuJoCo 离屏渲染需要的 OSMesa/OpenGL 系统库。
+- Linux 云端没有桌面显示器，程序会在导入 MuJoCo 前强制切换为 OSMesa 离屏渲染；启动日志中应出现 `[robot_sim] MuJoCo offscreen backend: OSMesa`。macOS 和 Windows 本地运行仍使用原有渲染方式。
+- 如果已经使用 Python 3.14 创建了应用，需要记录现有域名和 Secrets，删除该应用后用 Python 3.12 重新部署。Streamlit Cloud 目前不能直接修改已部署应用的 Python 版本。
+
 ## 配置 ChatGPT 调用
 
 正式部署时不要把 API Key 写入源码或提交到 GitHub。项目按以下顺序读取配置：
