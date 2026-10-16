@@ -1,0 +1,7 @@
+# Local and deployment credentials must never be committed.
+.streamlit/secrets.toml
+.env
+
+# Python runtime artifacts.
+__pycache__/
+*.pyc
