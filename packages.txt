@@ -1,0 +1,5 @@
+nodejs
+libgl1
+libegl1
+libglfw3
+libosmesa6

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="面向本科教学的强电检修机械臂 AI 虚拟仿真实验。">
+  <meta name="theme-color" content="#f4f3ef">
+  <title>强电检修机械臂虚拟仿真实验</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="progress" aria-hidden="true"><i></i></div>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="返回顶部"><span class="brand-mark"></span><span>机械臂虚拟仿真实验</span></a>
+    <nav aria-label="页面导航"><a href="#concept">实验概述</a><a href="#demonstration">技术演示</a><a href="#workflow">实验流程</a></nav>
+    <span class="header-note">本科教学 · AI 虚拟仿真</span>
+  </header>
+
+  <main id="top">
+    <section class="hero section-pad">
+      <div class="hero-copy reveal">
+        <div class="eyebrow"><span></span>机器人规划与控制综合实验</div>
+        <h1>在虚拟环境中，<br><em>理解规划与控制。</em></h1>
+        <p>面向强电检修场景，将自然语言任务理解、PDDL 符号规划、六自由度运动控制与 MuJoCo 虚拟验证组成一条可观察的教学链路。</p>
+        <div class="hero-index"><span><b>01</b>任务理解</span><span><b>02</b>符号规划</span><span><b>03</b>运动控制</span><span><b>04</b>虚拟验证</span></div>
+      </div>
+      <div class="hero-stage reveal delay-1" aria-label="从任务输入到虚拟验证的动态流程">
+        <div class="stage-head"><span><i></i>TEACHING PIPELINE</span><b>LIVE</b></div>
+        <div class="stage-prompt"><small>NATURAL LANGUAGE</small><p class="type-line" data-text="将故障熔断器放入回收区"></p></div>
+        <div class="stage-flow">
+          <div class="stage-node active"><i>01</i><div><strong>意图识别</strong><span>对象 · 区域 · 目标</span></div></div><b class="pulse-line"></b>
+          <div class="stage-node"><i>02</i><div><strong>PDDL 规划</strong><span>Problem · Domain · Plan</span></div></div><b class="pulse-line d2"></b>
+          <div class="stage-node"><i>03</i><div><strong>6DOF 轨迹</strong><span>路点 · 关节 · 姿态</span></div></div><b class="pulse-line d3"></b>
+          <div class="stage-node gold"><i>04</i><div><strong>虚拟验证</strong><span>执行 · 观察 · 分析</span></div></div>
+        </div>
+        <div class="stage-foot"><span>AI + PDDL + 6DOF</span><span>MUJOCO</span></div>
+      </div>
+    </section>
+
+    <div class="method-strip" aria-label="实验技术链路"><span><b>INPUT</b>自然语言任务</span><span><b>PLAN</b>PDDL 符号规划</span><span><b>CONTROL</b>6DOF 运动参数</span><span><b>VERIFY</b>MuJoCo 仿真结果</span></div>
+
+    <section class="section-pad narrative" id="concept">
+      <div class="section-label reveal">01 / 实验概述</div>
+      <div class="heading-grid reveal"><h2>不只看最终动画，<br>而是理解每个中间结果。</h2><p>真实强电环境不适合反复试错。实验将高层任务、符号规划和连续运动分层呈现，让学生能够检查、修改、比较并解释结果。</p></div>
+      <div class="principles">
+        <article class="reveal"><span>01</span><h3>AI 任务理解</h3><p>将自然语言限定在实验对象、区域与教学目标范围内。</p></article>
+        <article class="reveal delay-1"><span>02</span><h3>可检查的规划</h3><p>同时展示 Problem PDDL、Domain PDDL 和动作序列。</p></article>
+        <article class="reveal delay-2"><span>03</span><h3>连续运动验证</h3><p>通过路点、关节角与仿真结果连接高层任务和机械臂动作。</p></article>
+      </div>
+    </section>
+
+    <section class="demo-section section-pad" id="demonstration">
+      <div class="section-label reveal">02 / 任务转换演示</div>
+      <div class="heading-grid reveal"><h2>从一句指令，<br>到一次机械臂运动。</h2><p>动画展示教学逻辑：任务先被表达为可阅读的符号目标，再展开为抓取、搬运和放置轨迹。</p></div>
+      <div class="demo-grid reveal">
+        <div class="code-story">
+          <div class="story-step"><small>01 / TASK</small><strong>将故障熔断器放入回收区</strong></div>
+          <div class="story-arrow">↓</div>
+          <div class="code-panel"><small>02 / PDDL GOAL</small><code><i>(:objects faulty_fuse_1 - component)</i><i>(:init (at faulty_fuse_1 inspection_area))</i><i>(:goal (at faulty_fuse_1 recycle_area))</i></code></div>
+          <div class="story-arrow">↓</div>
+          <div class="action-row"><small>03 / PLAN</small><div><b>pick</b><i></i><b>extract</b><i></i><b>move</b><i></i><b>place</b></div></div>
+        </div>
+        <div class="robot-panel">
+          <div class="panel-head"><span>04 / TOP VIEW MOTION</span><b><i></i>LOOP</b></div>
+          <svg viewBox="0 0 560 380" role="img" aria-label="机械臂从俯视视角抓取熔断器并放入回收区">
+            <defs><pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="#e4e5e1"/></pattern></defs>
+            <rect width="560" height="380" fill="url(#grid)"/><circle cx="286" cy="192" r="151" fill="none" stroke="#c8ccca" stroke-dasharray="3 8"/><circle cx="286" cy="192" r="112" fill="none" stroke="#e1e3e0"/>
+            <path d="M286 192H528M286 192V28" stroke="#adb4b2"/><text x="532" y="196">X</text><text x="281" y="20">Y</text>
+            <rect x="38" y="274" width="95" height="70" fill="#eef0ee" stroke="#87918f"/><text x="55" y="365">检修区</text><rect x="434" y="46" width="92" height="70" fill="#f4efe2" stroke="#a88e55"/><text x="455" y="138">回收区</text>
+            <path d="M91 309Q272 34 480 82" fill="none" stroke="#a88e55" stroke-width="2" stroke-dasharray="5 8"/><text x="290" y="48" class="gold">规划轨迹</text>
+            <path class="arm" d="M286 192L230 142L135 262" fill="none" stroke="#334950" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"><animate attributeName="d" dur="10s" repeatCount="indefinite" values="M286 192L230 142L135 262;M286 192L220 188L91 309;M286 192L285 112L390 103;M286 192L360 158L480 82;M286 192L360 158L480 82;M286 192L230 142L135 262" keyTimes="0;.2;.48;.72;.88;1"/></path>
+            <circle cx="286" cy="192" r="29" fill="#263a40"/><circle cx="286" cy="192" r="10" fill="#dce0de"/><text x="257" y="238">底座</text>
+            <circle cx="135" cy="262" r="9" fill="#b88426"><animate attributeName="cx" dur="10s" repeatCount="indefinite" values="135;91;390;480;480;135" keyTimes="0;.2;.48;.72;.88;1"/><animate attributeName="cy" dur="10s" repeatCount="indefinite" values="262;309;103;82;82;262" keyTimes="0;.2;.48;.72;.88;1"/></circle>
+            <rect x="77" y="303" width="28" height="12" rx="6" fill="#b85e43"><animate attributeName="x" dur="10s" repeatCount="indefinite" values="77;77;376;466;466;77" keyTimes="0;.2;.48;.72;.88;1"/><animate attributeName="y" dur="10s" repeatCount="indefinite" values="303;303;97;76;76;303" keyTimes="0;.2;.48;.72;.88;1"/></rect>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="explain-section section-pad">
+      <div class="section-label reveal">03 / AI 深度解读</div>
+      <div class="heading-grid reveal"><h2>把代码与参数，<br>转化为可视的教学解释。</h2><p>AI 根据当前 PDDL 和运动参数组织解读内容，再以 answer-me-with-html 的方式生成独立的结构化讲解页。</p></div>
+      <div class="explain-demo reveal">
+        <div class="source-card"><div class="source-head"><span>CURRENT CONTEXT</span><b>PDDL + MOTION</b></div><pre>(:goal
+  (at faulty_fuse_1
+      recycle_area))</pre><dl><div><dt>安全高度 Z</dt><dd>0.52 m</dd></div><div><dt>轴向接近距离</dt><dd>0.10 m</dd></div></dl><button type="button" tabindex="-1"><i></i>生成可视化深度解读</button></div>
+        <div class="transform"><i></i><span>AI 结构化解读</span><b>→</b><span>HTML 教学页</span><i></i></div>
+        <div class="result-page"><div class="browser-bar"><i></i><i></i><i></i><b>PDDL 规划解读</b></div><div class="result-body"><article class="result-reveal r1"><small>核心结论</small><h3>目标是将故障熔断器移至回收区</h3></article><article class="result-reveal r2"><small>规划关系</small><div class="mini-flow"><b>初始状态</b><i>→</i><b>抓取</b><i>→</i><b>搬运</b><i>→</i><b>目标状态</b></div></article><div class="result-pair"><article class="result-reveal r3"><small>对象</small><strong>faulty_fuse_1</strong><p>检修区中的故障部件</p></article><article class="result-reveal r4"><small>参数影响</small><strong>安全高度</strong><p>影响跨越障碍与轨迹长度</p></article></div><div class="teaching-note result-reveal r5"><b>教学提示</b><span>AI 提供解读；运动学与碰撞检查由程序执行。</span></div></div></div>
+      </div>
+      <p class="demo-caption">功能演示不调用 API；实验程序将根据学生当前内容动态生成解读。</p>
+    </section>
+
+    <section class="workflow section-pad" id="workflow">
+      <div class="section-label reveal">04 / 实验流程</div>
+      <div class="heading-grid reveal"><h2>五个步骤，建立从任务到轨迹的因果联系。</h2><p>学生从场景配置出发，逐步检查任务理解、符号规划、运动参数与仿真结果。</p></div>
+      <div class="steps">
+        <article class="reveal"><b>01</b><small>CONFIGURE</small><h3>场景配置</h3><p>添加检修对象，理解位置和操作差异。</p></article><article class="reveal"><b>02</b><small>PLAN</small><h3>PDDL 规划</h3><p>输入自然语言，检查 Problem、Domain 与计划。</p></article><article class="reveal"><b>03</b><small>MOTION</small><h3>运动参数</h3><p>调整安全高度、接近距离、路点与关节角。</p></article><article class="reveal"><b>04</b><small>EXECUTE</small><h3>仿真执行</h3><p>观察接近、抓取、搬运与放置过程。</p></article><article class="reveal"><b>05</b><small>ANALYZE</small><h3>结果分析</h3><p>对比关节曲线和末端轨迹，解释参数影响。</p></article>
+      </div>
+    </section>
+
+    <section class="objects section-pad">
+      <div class="section-label reveal">05 / 强电检修对象</div>
+      <div class="heading-grid reveal"><h2>对象不同，<br>操作逻辑也不同。</h2><p>实验依据对象形状、安装方向和教学风险，区分轴向拔出、稳定搬运、定向插装和中部夹持等动作。</p></div>
+      <div class="object-grid">
+        <article class="reveal"><i class="shape fuse"></i><div><h3>熔断器</h3><p>轴向拔出 / 插入</p></div></article><article class="reveal"><i class="shape insulator"></i><div><h3>绝缘子</h3><p>竖直稳定搬运</p></div></article><article class="reveal"><i class="shape busbar"></i><div><h3>母排</h3><p>中心夹持低速搬运</p></div></article><article class="reveal"><i class="shape terminal"></i><div><h3>接线端子</h3><p>精确对准插入</p></div></article><article class="reveal"><i class="shape breaker"></i><div><h3>断路器模块</h3><p>正面推入 / 拔出</p></div></article><article class="reveal"><i class="shape shield"></i><div><h3>绝缘护罩</h3><p>平面姿态搬运</p></div></article><article class="reveal"><i class="shape probe"></i><div><h3>验电笔</h3><p>探头接近与停留</p></div></article><article class="reveal"><i class="shape rod"></i><div><h3>绝缘操作杆</h3><p>中部夹持定向操作</p></div></article>
+      </div>
+    </section>
+
+    <section class="outcomes section-pad">
+      <div class="outcome-copy reveal"><div class="section-label light">06 / 学习目标</div><h2>从“看见运动”，<br>到“解释运动”。</h2><p>课程目标不是得到一次看起来正确的动画，而是建立任务语义、符号规划、运动参数和仿真结果之间的因果联系。</p></div>
+      <div class="outcome-list reveal"><div><b>01</b><span>判断 AI 是否正确理解任务</span></div><div><b>02</b><span>解读 Domain 与 Problem PDDL</span></div><div><b>03</b><span>理解离散规划与连续运动的连接</span></div><div><b>04</b><span>比较轨迹参数与六关节参数</span></div><div><b>05</b><span>根据仿真与轨迹数据验证结果</span></div></div>
+    </section>
+
+    <section class="launch section-pad" id="launch">
+      <div class="launch-meta reveal"><span>VIRTUAL LABORATORY</span><span>FOR EDUCATION ONLY</span></div>
+      <div class="launch-grid reveal"><div><div class="section-label">07 / 进入实验</div><h2>从场景配置开始，<br>完成五步虚拟仿真实验。</h2></div><div><p>进入独立的 Streamlit 实验程序，进行对象配置、PDDL 规划、运动参数调整、仿真执行与结果分析。</p><a class="launch-button" id="streamlit-link" href="#" target="_blank" rel="noopener"><span>访问 Streamlit App</span><i>↗</i></a><small id="link-status">实验程序将在新页面中打开</small></div></div>
+      <div class="safety"><b>教学边界</b><p>本实验中的 AI 输出、PDDL 计划、运动参数与仿真结果仅用于本科教学，不构成真实带电检修方案或设备控制指令。</p></div>
+    </section>
+  </main>
+
+  <footer><a class="brand" href="#top"><span class="brand-mark"></span><span>机械臂虚拟仿真实验</span></a><p>强电检修 · 6DOF 机械臂 · 本科教学版</p></footer>
+  <script src="config.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
