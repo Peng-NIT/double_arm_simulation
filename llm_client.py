@@ -48,7 +48,7 @@ def parse_intent_with_chatgpt(
     client = _client()
     item_names = [safe_symbol(x["name"]) for x in items]
     target_names = list(targets)
-    prompt = f"""你是机械臂教学实验的任务解析器。
+    prompt = f"""你是双臂机器人教学实验的任务解析器。
 只从给定列表中选择一个物体和一个目标区域。
 物体：{item_names}
 目标区域：{target_names}
@@ -102,14 +102,14 @@ def generate_deep_explanation(
 ) -> str:
     """Generate renderer-safe Markdown for a course-scoped visual explanation."""
     client = _client()
-    prompt = f"""你是“强电检修 6DOF 机械臂虚拟仿真实验”的本科课程助教。
+    prompt = f"""你是“强电检修双6DOF机械臂虚拟仿真实验”的本科课程助教。
 主题：{topic}
 学生问题：{question or '请系统解读当前内容'}
 实验上下文：
 {context}
 
 边界：
-1. 只解释本实验的 PDDL、动作计划、6DOF、路点、关节角、轨迹、MuJoCo 和上述强电检修对象。
+1. 只解释本实验的双臂PDDL、任务分配、左右6DOF、路点、关节角、轨迹、MuJoCo和上述强电检修对象。
 2. 若问题与实验无关，只回答“该问题不在本实验讲解范围内”，并给出一个可提问的实验示例。
 3. 不提供真实带电检修步骤、安全许可或设备控制指令。
 4. 输出结构化 Markdown，不要输出 HTML、SVG、外部链接或三反引号代码块。

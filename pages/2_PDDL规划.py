@@ -2,12 +2,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from html_explainer import render_explanation
-from lab_config import FACILITIES, REGIONS, STATIONS, TARGETS, TASK_PROFILES
-from lab_state import help_heading, invalidate_after_plan_change, nav, page_header
+from lab_config import (ARM_ROLES, FACILITIES, REGIONS, STATIONS, TARGETS, TASK_MODES,
+                        TASK_PROFILES)
+from lab_state import help_heading, invalidate_after_plan_change, nav, page_header, require_login
 from llm_client import generate_deep_explanation, generate_learning_hint, parse_intent_with_chatgpt
 from planner import DOMAIN_PDDL, build_problem, heuristic_intent, intent_from_problem, make_plan, plan_as_text
 
 st.set_page_config(page_title="2 PDDL规划", page_icon="⚡", layout="wide")
+require_login()
 page_header(2, "2. 自然语言与 PDDL 规划")
 
 if not st.session_state["items"]:
@@ -24,33 +26,58 @@ else:
                           "目标工位": f"{station['color']}{station['label']}",
                           "固定设施": facility["label"],
                           "推荐任务": profile["task"],
+                          "执行模式": "双臂必须" if TASK_MODES[item["kind"]] == "dual" else "单臂可选",
+                          "机械臂分工": ARM_ROLES[item["kind"]],
                           "检修动作展开": profile["pddl"], "重点参数": profile["focus"]})
     st.dataframe(task_rows, hide_index=True, width="stretch")
-    examples = [row["推荐任务"] for row in task_rows]
-    selected_example = st.selectbox("当前场景推荐任务", examples,
-        help="推荐任务由操作对象和固定设施的匹配关系生成，可在下方继续修改。")
+    selected_name = st.selectbox("当前规划对象", [item["name"] for item in st.session_state["items"]],
+        format_func=lambda name: next(f"{item['label']}（{name}）" for item in st.session_state["items"] if item["name"] == name),
+        help="先选择本次要规划的物体，执行模式由该物体的任务类型决定。")
+    selected_item = next(item for item in st.session_state["items"] if item["name"] == selected_name)
+    selected_profile = TASK_PROFILES[selected_item["kind"]]
+    selected_mode = TASK_MODES[selected_item["kind"]]
+    if selected_mode == "single":
+        recommended_arm = ("left_arm" if TARGETS[selected_profile["facility"]][1] >= 0
+                           else "right_arm")
+        selected_arm = st.radio(
+            "单臂执行选择", ["left_arm", "right_arm"], horizontal=True,
+            index=0 if recommended_arm == "left_arm" else 1,
+            format_func=lambda arm: "左臂" if arm == "left_arm" else "右臂",
+            help="选择后会重新进行IK、轨迹和碰撞检查；另一条机械臂保持Home位。",
+            key=f"execution_arm_{selected_name}",
+        )
+        st.caption(f"该任务可单臂完成；根据工位位置推荐{'左臂' if recommended_arm == 'left_arm' else '右臂'}。")
+    else:
+        selected_arm = None
+        lock_left, lock_right = st.columns(2)
+        lock_left.button("左臂（不可单选）", disabled=True, width="stretch")
+        lock_right.button("右臂（不可单选）", disabled=True, width="stretch")
+        st.info("该任务必须双臂协作，左臂/右臂单选已锁定。PDDL规划必须包含两臂的有效动作。")
     instruction = st.text_area(
-        "自然语言检修任务", selected_example, height=90,
-        help="请明确写出场景中的物体和目标区域。ChatGPT 只会从当前场景允许的对象中选择。",
+        "自然语言检修任务", selected_profile["task"], height=90,
+        help="请明确写出场景中的物体和目标区域。大语言模型只会从当前场景允许的对象中选择。",
     )
-    use_llm = st.checkbox("使用 ChatGPT 解析", value=True, help="关闭后使用本地关键词解析。")
+    use_llm = st.checkbox("使用大语言模型解析", value=True, help="关闭后使用本地关键词解析。")
     if st.button("生成 PDDL 与计划", type="primary"):
         try:
             intent = (parse_intent_with_chatgpt(instruction, st.session_state["items"], TARGETS)
                       if use_llm else heuristic_intent(instruction, st.session_state["items"], TARGETS))
+            if intent.item != selected_name:
+                raise ValueError(f"识别到的物体 {intent.item} 与当前规划对象 {selected_name} 不一致，请修改指令或切换对象。")
             invalidate_after_plan_change()
             st.session_state["intent"] = intent
+            st.session_state["execution_arm"] = selected_arm
             st.session_state["problem"] = build_problem(st.session_state["items"], intent)
-            st.session_state["plan"] = make_plan(st.session_state["items"], intent)
+            st.session_state["plan"] = make_plan(st.session_state["items"], intent, selected_arm)
             st.success("PDDL 与动作计划已生成。")
         except Exception as exc:
             st.error(str(exc))
 
     with st.expander("Domain、Problem 与 Plan 是什么关系？"):
         st.markdown(
-            "**Domain PDDL** 定义“能做什么”，例如 `pick` 和 `place` 的条件与效果。  \n"
+            "**Domain PDDL** 定义左右机械臂能做什么，例如 `pick`、`stabilize-fixture`、`assisted-insert`、`assisted-test` 和 `strip-wire`。  \n"
             "**Problem PDDL** 定义“本次实验有什么、从哪里开始、要到哪里”。  \n"
-            "**Plan** 是规划器根据 Domain 规则，从 Problem 初始状态到达目标的动作序列。"
+            "**Plan** 同时说明哪条机械臂执行动作，是从符号任务到双臂连续运动的接口。"
         )
 
     col1, col2 = st.columns(2)
@@ -66,7 +93,9 @@ else:
                 invalidate_after_plan_change()
                 st.session_state["problem"] = edited
                 st.session_state["intent"] = intent
-                st.session_state["plan"] = make_plan(st.session_state["items"], intent)
+                planned_item = next(item for item in st.session_state["items"] if item["name"] == intent.item)
+                arm = st.session_state.get("execution_arm") if TASK_MODES[planned_item["kind"]] == "single" else None
+                st.session_state["plan"] = make_plan(st.session_state["items"], intent, arm)
                 st.success("修改已通过检查，计划与后续运动状态已更新。")
             except Exception as exc:
                 st.error(f"PDDL 未保存：{exc}")

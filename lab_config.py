@@ -1,65 +1,100 @@
 """Shared teaching configuration for the power-maintenance lab."""
 
+# Expanded workbench: the top height remains 0.07 m so existing object and
+# trajectory Z values stay valid, while the longer/deeper surface lets storage
+# zones and operating stations remain visually independent.
+WORKBENCH = {"center": (0.58, 0.0, 0.035), "half_size": (0.58, 0.56, 0.035)}
+
 TARGETS = {
     "slot_1": (0.66, 0.20, 0.17),
     "slot_2": (0.66, 0.10, 0.17),
     "slot_3": (0.66, 0.00, 0.17),
-    "fuse_slot": (0.54, 0.27, 0.115),
-    "terminal_slot": (0.70, 0.27, 0.115),
-    "breaker_bay": (0.70, 0.04, 0.135),
-    "test_point": (0.52, -0.24, 0.15),
-    "switch_point": (0.70, -0.24, 0.16),
-    "cover_area": (0.50, 0.06, 0.075),
+    "fuse_slot": (0.54, 0.30, 0.115),
+    "terminal_slot": (0.70, 0.30, 0.115),
+    "breaker_bay": (0.73, 0.14, 0.135),
+    "test_point": (0.52, -0.37, 0.15),
+    "switch_point": (0.69, -0.37, 0.16),
+    "cover_area": (0.47, 0.02, 0.075),
+    "wire_strip_station": (0.64, -0.16, 0.15),
+    "insulator_stand": (0.57, 0.12, 0.125),
+    "busbar_mount": (0.62, 0.48, 0.105),
 }
 
 STATIONS = {
-    "A": {"label": "拆装工位", "color": "蓝色", "center": (0.62, 0.27, 0.073), "size": (0.18, 0.085), "rgba": "0.24 0.52 0.68 0.24"},
-    "B": {"label": "模块检修工位", "color": "灰色", "center": (0.70, 0.04, 0.073), "size": (0.095, 0.085), "rgba": "0.34 0.39 0.43 0.24"},
-    "C": {"label": "检测操作工位", "color": "橙色", "center": (0.61, -0.24, 0.073), "size": (0.19, 0.085), "rgba": "0.78 0.40 0.20 0.24"},
-    "D": {"label": "绝缘防护工位", "color": "黄色", "center": (0.50, 0.06, 0.073), "size": (0.105, 0.09), "rgba": "0.76 0.65 0.24 0.24"},
+    "A": {"label": "拆装工位", "color": "蓝色", "center": (0.62, 0.39, 0.073), "size": (0.20, 0.18), "rgba": "0.24 0.52 0.68 0.24"},
+    "B": {"label": "模块检修工位", "color": "灰色", "center": (0.73, 0.14, 0.073), "size": (0.10, 0.085), "rgba": "0.34 0.39 0.43 0.24"},
+    "C": {"label": "检测操作工位", "color": "橙色", "center": (0.605, -0.37, 0.073), "size": (0.19, 0.09), "rgba": "0.78 0.40 0.20 0.24"},
+    "D": {"label": "绝缘防护工位", "color": "黄色", "center": (0.52, 0.07, 0.073), "size": (0.12, 0.10), "rgba": "0.76 0.65 0.24 0.24"},
+    "E": {"label": "剥线接线协作工位", "color": "紫蓝色", "center": (0.64, -0.16, 0.073), "size": (0.12, 0.075), "rgba": "0.42 0.36 0.72 0.24"},
 }
 
 # Recommended staging zones for objects before the robot starts a task.  These
 # zones sit near the relevant station but stay clear of its fixed fixture.
 PLACEMENT_ZONES = {
-    "fuse": {"label": "蓝色拆装区左侧暂存区", "station": "A", "x": (0.38, 0.46), "y": (0.22, 0.32), "default": (0.43, 0.27)},
-    "terminal": {"label": "蓝色拆装区前侧备件区", "station": "A", "x": (0.56, 0.66), "y": (0.14, 0.20), "default": (0.61, 0.17)},
-    "busbar": {"label": "蓝色拆装区长件暂存区", "station": "A", "x": (0.36, 0.44), "y": (0.20, 0.32), "default": (0.40, 0.26)},
-    "breaker": {"label": "灰色模块区正面暂存区", "station": "B", "x": (0.52, 0.60), "y": (-0.04, 0.04), "default": (0.56, 0.00)},
-    "insulator": {"label": "灰色模块区侧面暂存区", "station": "B", "x": (0.50, 0.58), "y": (0.10, 0.18), "default": (0.54, 0.14)},
-    "probe": {"label": "橙色检测区工具暂存区", "station": "C", "x": (0.34, 0.42), "y": (-0.30, -0.20), "default": (0.38, -0.25)},
-    "operating_rod": {"label": "橙色检测区长工具暂存区", "station": "C", "x": (0.34, 0.42), "y": (-0.30, -0.20), "default": (0.38, -0.25)},
-    "shield": {"label": "黄色防护区前侧暂存区", "station": "D", "x": (0.46, 0.54), "y": (-0.08, -0.02), "default": (0.50, -0.05)},
+    "fuse": {"label": "左侧青色检修暂存区", "station": "A", "x": (0.41, 0.49), "y": (0.10, 0.18), "default": (0.45, 0.14)},
+    "terminal": {"label": "左前侧紫色备件区", "station": "A", "x": (0.40, 0.48), "y": (-0.34, -0.26), "default": (0.44, -0.30)},
+    "busbar": {"label": "左侧青色长件暂存区", "station": "A", "x": (0.41, 0.49), "y": (0.10, 0.18), "default": (0.45, 0.14)},
+    "breaker": {"label": "左前侧紫色备件区", "station": "B", "x": (0.40, 0.48), "y": (-0.34, -0.26), "default": (0.44, -0.30)},
+    "insulator": {"label": "左侧青色检修暂存区", "station": "D", "x": (0.41, 0.49), "y": (0.10, 0.18), "default": (0.45, 0.14)},
+    "probe": {"label": "左后侧绿色工具区", "station": "C", "x": (0.40, 0.48), "y": (0.30, 0.38), "default": (0.44, 0.34)},
+    "operating_rod": {"label": "左后侧绿色长工具区", "station": "C", "x": (0.40, 0.48), "y": (0.30, 0.38), "default": (0.44, 0.34)},
+    "shield": {"label": "右侧白色安全区", "station": "D", "x": (0.78, 0.86), "y": (-0.12, -0.04), "default": (0.82, -0.08)},
+    "wire": {"label": "左侧青色导线暂存区", "station": "E", "x": (0.41, 0.49), "y": (0.10, 0.18), "default": (0.45, 0.14)},
 }
 
 # Fixed, non-movable teaching fixtures.  They make semantic PDDL targets visible
 # without turning the exercise into a full switchgear world model.
 FACILITIES = {
-    "fuse_slot": {"label": "熔断器安装槽", "station": "A", "position": (0.54, 0.27, 0.115), "kind": "slot", "rgba": "0.16 0.43 0.62 1"},
-    "terminal_slot": {"label": "接线端子插槽", "station": "A", "position": (0.70, 0.27, 0.115), "kind": "slot", "rgba": "0.28 0.61 0.74 1"},
-    "breaker_bay": {"label": "断路器安装位", "station": "B", "position": (0.70, 0.04, 0.135), "kind": "bay", "rgba": "0.25 0.29 0.32 1"},
-    "test_point": {"label": "电气检测点", "station": "C", "position": (0.52, -0.24, 0.15), "kind": "point", "rgba": "0.88 0.28 0.18 1"},
-    "switch_point": {"label": "隔离开关操作点", "station": "C", "position": (0.70, -0.24, 0.16), "kind": "switch", "rgba": "0.92 0.54 0.14 1"},
-    "cover_area": {"label": "绝缘护罩覆盖区", "station": "D", "position": (0.50, 0.06, 0.075), "kind": "area", "rgba": "0.88 0.72 0.18 0.42"},
+    "fuse_slot": {"label": "熔断器安装槽", "station": "A", "position": (0.54, 0.30, 0.115), "kind": "slot", "rgba": "0.16 0.43 0.62 1"},
+    "terminal_slot": {"label": "接线端子插槽", "station": "A", "position": (0.70, 0.30, 0.115), "kind": "slot", "rgba": "0.28 0.61 0.74 1"},
+    "breaker_bay": {"label": "断路器安装位", "station": "B", "position": (0.73, 0.14, 0.135), "kind": "bay", "rgba": "0.25 0.29 0.32 1"},
+    "test_point": {"label": "电气检测点", "station": "C", "position": (0.52, -0.37, 0.15), "kind": "point", "rgba": "0.88 0.28 0.18 1"},
+    "switch_point": {"label": "隔离开关操作点", "station": "C", "position": (0.69, -0.37, 0.16), "kind": "switch", "rgba": "0.92 0.54 0.14 1"},
+    "cover_area": {"label": "绝缘护罩覆盖区", "station": "D", "position": (0.47, 0.02, 0.075), "kind": "area", "rgba": "0.88 0.72 0.18 0.42"},
+    "wire_strip_station": {"label": "剥线定位槽", "station": "E", "position": (0.64, -0.16, 0.15), "kind": "slot", "rgba": "0.48 0.35 0.78 1"},
+    "insulator_stand": {"label": "绝缘子检修座", "station": "D", "position": (0.57, 0.12, 0.125), "kind": "bay", "rgba": "0.72 0.64 0.32 1"},
+    "busbar_mount": {"label": "母排安装位", "station": "A", "position": (0.62, 0.48, 0.105), "kind": "slot", "rgba": "0.72 0.30 0.10 1"},
 }
 
 TASK_PROFILES = {
-    "fuse": {"facility": "fuse_slot", "task": "将故障熔断器沿轴向拔出并移至回收区 recycle_area", "pddl": "align → grasp → extract → move → release", "focus": "轴向距离、安全高度"},
-    "terminal": {"facility": "terminal_slot", "task": "将备用接线端子对准端子插槽 terminal_slot 并低速插入", "pddl": "grasp → align → insert → verify → release", "focus": "对准位置、接近距离"},
-    "breaker": {"facility": "breaker_bay", "task": "将断路器模块正面对准安装位 breaker_bay 并低速就位", "pddl": "align-front → grasp → move → place-upright", "focus": "正面接近、腕部姿态"},
-    "probe": {"facility": "test_point", "task": "使用验电笔接近检测点 test_point 并保持检测姿态", "pddl": "grasp-middle → approach → hold-test → retract → return-tool", "focus": "探头方向、检测距离"},
-    "operating_rod": {"facility": "switch_point", "task": "使用绝缘操作杆接近开关操作点 switch_point 并定向推动", "pddl": "grasp-middle → orient → push → retract → return-tool", "focus": "工具方向、末端摆幅"},
-    "shield": {"facility": "cover_area", "task": "将绝缘护罩对准覆盖区 cover_area 并垂直下降", "pddl": "grasp-edge → lift-flat → align-cover → lower-cover", "focus": "平面姿态、下降距离"},
-    "insulator": {"facility": "breaker_bay", "task": "保持绝缘子竖直并转移至安全区", "pddl": "grasp → lift-upright → move → release", "focus": "竖直姿态、安全高度"},
-    "busbar": {"facility": "terminal_slot", "task": "从中心夹持母排并保持水平转移至安全区", "pddl": "grasp-center → lift-flat → move → release", "focus": "中心夹持、水平姿态"},
+    "fuse": {"facility": "fuse_slot", "task": "将熔断器对准安装槽 fuse_slot 并完成轴向插装", "pddl": "pick → stage → insert-component → return-home", "focus": "安装轴线、插入距离、安全高度"},
+    "terminal": {"facility": "terminal_slot", "task": "将备用接线端子对准端子插槽 terminal_slot 并精密插入", "pddl": "pick → stage → insert-component → return-home", "focus": "端子槽对准、插入距离、接近速度"},
+    "breaker": {"facility": "breaker_bay", "task": "将断路器模块正面对准安装位 breaker_bay 并水平推入落座", "pddl": "pick → stage → seat-component → return-home", "focus": "安装导轨、正面接近、腕部姿态"},
+    "probe": {"facility": "test_point", "task": "验电笔接近检测点、停留检测后撤回工具区", "pddl": "pick → test-component → return-tool → return-home", "focus": "探头方向、检测距离、停留时间"},
+    "operating_rod": {"facility": "switch_point", "task": "绝缘操作杆对准开关、定向推动后回撤并归位", "pddl": "pick → operate-component → return-tool → return-home", "focus": "工具方向、推动行程、末端摆幅"},
+    "shield": {"facility": "cover_area", "task": "保持绝缘护罩水平，对准覆盖区后垂直下降", "pddl": "pick → stage → stabilize-cover-area → assisted-cover", "focus": "覆盖区稳定、平面姿态、下降距离"},
+    "insulator": {"facility": "insulator_stand", "task": "保持绝缘子竖直，正面接近检修座并稳定落座", "pddl": "pick → stage → stabilize-stand → assisted-seat", "focus": "检修座稳定、竖直姿态、落座高度"},
+    "busbar": {"facility": "busbar_mount", "task": "水平搬运母排，完成双点对中后侧向就位", "pddl": "pick → stage → stabilize-mount → assisted-mount", "focus": "双点对中、中心夹持、水平姿态"},
+    "wire": {"facility": "wire_strip_station", "task": "双臂协作固定导线、完成剥线并插入接线端子 terminal_slot", "pddl": "left-hold → right-strip → left-insert → release", "focus": "双臂同步、剥线长度、端子对准"},
+}
+
+# Five tasks are intentionally teachable with either arm.  The remaining four
+# require coordinated use of both arms and must never expose a single-arm
+# selector in the planning UI.
+TASK_MODES = {
+    "fuse": "single", "terminal": "single", "breaker": "single",
+    "probe": "single", "operating_rod": "single",
+    "shield": "dual", "insulator": "dual", "busbar": "dual", "wire": "dual",
+}
+
+ARM_ROLES = {
+    "fuse": "单臂轴向插装；可选左臂或右臂，未选机械臂保持 Home 位",
+    "terminal": "单臂精密插入；可选左臂或右臂，未选机械臂保持 Home 位",
+    "breaker": "单臂正面推入；可选左臂或右臂，未选机械臂保持 Home 位",
+    "probe": "单臂持验电笔检测并归位；可选左臂或右臂",
+    "operating_rod": "单臂持操作杆推动开关并归位；可选左臂或右臂",
+    "shield": "主臂搬运护罩；辅臂稳定覆盖区边界，保持期间主臂平稳下降",
+    "insulator": "主臂保持绝缘子竖直；辅臂稳定检修座，保持期间主臂完成安装",
+    "busbar": "主臂中心夹持母排；辅臂稳定母排安装位，保持期间主臂水平就位",
+    "wire": "左臂固定并插入导线，右臂执行简化剥线动作",
 }
 
 REGIONS = {
-    "inspection_area": {"label": "检修区", "xy": (0.45, 0.14), "x": (0.40, 0.50), "y": (0.10, 0.18), "color": "青色", "rgba": "0.20 0.78 0.82", "help": "正在检修或等待操作的部件。"},
-    "replacement_area": {"label": "备件区", "xy": (0.44, -0.31), "x": (0.40, 0.48), "y": (-0.35, -0.27), "color": "紫色", "rgba": "0.55 0.42 0.76", "help": "新备件的存放区域。"},
+    "inspection_area": {"label": "检修区", "xy": (0.45, 0.14), "x": (0.41, 0.49), "y": (0.10, 0.18), "color": "青色", "rgba": "0.20 0.78 0.82", "help": "正在检修或等待操作的部件。"},
+    "replacement_area": {"label": "备件区", "xy": (0.44, -0.30), "x": (0.40, 0.48), "y": (-0.34, -0.26), "color": "紫色", "rgba": "0.55 0.42 0.76", "help": "新备件的存放区域。"},
     "tool_area": {"label": "工具区", "xy": (0.44, 0.34), "x": (0.40, 0.48), "y": (0.30, 0.38), "color": "绿色", "rgba": "0.30 0.68 0.48", "help": "绝缘工具和测试工具的存放区域。"},
-    "safe_area": {"label": "安全区", "xy": (0.74, 0.14), "x": (0.70, 0.78), "y": (0.10, 0.18), "color": "白色", "rgba": "0.82 0.87 0.89", "help": "临时放置已处理部件。"},
-    "recycle_area": {"label": "回收区", "xy": (0.58, -0.31), "x": (0.52, 0.64), "y": (-0.35, -0.27), "color": "红色", "rgba": "0.78 0.28 0.25", "help": "故障或拆除部件的回收区域。"},
+    "safe_area": {"label": "安全区", "xy": (0.82, -0.08), "x": (0.78, 0.86), "y": (-0.12, -0.04), "color": "白色", "rgba": "0.82 0.87 0.89", "help": "临时放置已处理部件。"},
+    "recycle_area": {"label": "回收区", "xy": (0.55, -0.50), "x": (0.48, 0.62), "y": (-0.54, -0.46), "color": "红色", "rgba": "0.78 0.28 0.25", "help": "故障或拆除部件的回收区域。"},
 }
 
 # Semantic PDDL locations and MuJoCo region centers share this single source.
@@ -124,6 +159,12 @@ PRESETS = {
         "region": "tool_area", "operation": "中部夹持定向操作",
         "guidance": "从中部夹持并保持操作杆方向，限制腕部大角度旋转。",
         "risk": "细长物体末端摆动范围较大。",
+    },
+    "待接导线": {
+        "kind": "wire", "size": (0.012, 0.012, 0.090), "rgba": "0.18 0.32 0.78 1",
+        "region": "inspection_area", "operation": "双臂固定、剥线与端接",
+        "guidance": "左臂稳定夹持导线，右臂在剥线定位槽完成简化剥线，随后左臂将线端插入端子槽。",
+        "risk": "两臂进入共享区时必须保持安全间距；本实验只表达状态与轨迹，不模拟真实切削。",
     },
 }
 

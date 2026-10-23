@@ -1,12 +1,13 @@
 import streamlit as st
 
-from lab_state import init_state, reset_experiment
+from lab_state import init_state, require_login, reset_experiment
 
-st.set_page_config(page_title="强电检修机械臂实验", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="强电检修机器人实验", page_icon="⚡", layout="wide")
+require_login()
 init_state()
 
-st.title("⚡ 强电检修 6DOF 机械臂仿真实验")
-st.caption("自然语言 → PDDL → 专用操作模板 → 6DOF 参数 → MuJoCo → 轨迹分析")
+st.title("⚡ 大语言模型驱动的电力系统维修机器人虚拟仿真实验")
+st.caption("自然语言 → PDDL任务分配 → 单/双臂6DOF规划 → MuJoCo仿真 → 轨迹分析")
 st.warning("本程序仅用于课程仿真，不构成真实带电检修的安全方案或控制系统。")
 
 st.subheader("实验流程")
@@ -14,8 +15,8 @@ cols = st.columns(5)
 steps = [
     ("① 场景配置", "添加电气部件，理解区域与坐标。"),
     ("② PDDL 规划", "生成、阅读并修改符号任务。"),
-    ("③ 运动参数", "理解专用操作模板和 6DOF 参数。"),
-    ("④ 仿真执行", "在 MuJoCo 中执行计划。"),
+    ("③ 运动参数", "理解左右臂分工和各自6DOF参数。"),
+    ("④ 仿真执行", "在 MuJoCo 中执行单臂或双臂协作计划。"),
     ("⑤ 结果分析", "比较关节和末端轨迹。"),
 ]
 for col, (name, description) in zip(cols, steps):

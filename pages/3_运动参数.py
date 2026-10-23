@@ -4,22 +4,23 @@ import streamlit.components.v1 as components
 
 from html_explainer import render_explanation
 from lab_config import FACILITIES, PRESETS, TARGETS, TASK_PROFILES
-from lab_state import camera_controls, help_heading, nav, page_header
+from lab_state import camera_controls, help_heading, nav, page_header, require_login
 from llm_client import generate_deep_explanation
-from robot_sim import HOME_Q, TEACHING_JOINT_LIMITS, RobotSimulation, waypoints_from_plan
+from robot_sim import HOME_QS, TEACHING_JOINT_LIMITS, RobotSimulation, waypoints_from_plan
 
 
 def waypoint_key(index, waypoint):
-    return f"{index}:{waypoint.pddl_action}:{waypoint.label}"
+    return f"{index}:{waypoint.arm}:{waypoint.pddl_action}:{waypoint.label}"
 
 
-st.set_page_config(page_title="3 运动参数", page_icon="⚡", layout="wide")
-page_header(3, "3. 专用操作模板与 6DOF 参数")
+st.set_page_config(page_title="3 双臂运动参数", page_icon="⚡", layout="wide")
+require_login()
+page_header(3, "3. 双臂任务分工与 6DOF 参数")
 
 if not st.session_state["plan"]:
     st.warning("请先在 PDDL 页面生成动作计划。")
 else:
-    item_name = st.session_state["plan"][0]["args"][0]
+    item_name = st.session_state["intent"].item
     item = next(x for x in st.session_state["items"] if x["name"] == item_name)
     preset = PRESETS.get(item.get("preset", item.get("label")), PRESETS["熔断器"])
     with st.container(border=True):
@@ -77,17 +78,20 @@ else:
 
     help_heading("B. 选择路点并修改末端位置", "XYZ 是连续工作空间坐标；保存后会重新求解 IK 并用于仿真。")
     selected_index = st.selectbox("运动子步骤", range(len(waypoints)),
-        format_func=lambda i: f"{i + 1}. {waypoints[i].pddl_action} → {waypoints[i].label}")
+        format_func=lambda i: f"{i + 1}. {'左臂' if waypoints[i].arm == 'left_arm' else '右臂'}｜{waypoints[i].pddl_action} → {waypoints[i].label}")
     waypoint = waypoints[selected_index]
     stable_key = waypoint_key(selected_index, waypoint)
+    fixed_home = waypoint.joint_target is not None
     px, py, pz = map(float, waypoint.position)
     p1, p2, p3 = st.columns(3)
-    new_x = p1.number_input("目标 X / m", 0.24, 0.74, px, 0.01, help="机械臂前后方向；范围受教学工作空间限制。")
-    new_y = p2.number_input("目标 Y / m", -0.32, 0.32, py, 0.01, help="机械臂左右方向。")
-    new_z = p3.number_input("目标 Z / m", 0.15, 0.60, pz, 0.01, help="末端高度；过低可能与工作台碰撞。")
+    new_x = p1.number_input("目标 X / m", 0.20, 0.84, px, 0.01, disabled=fixed_home, help="双臂前后方向；范围覆盖协作工位并受教学工作空间限制。")
+    new_y = p2.number_input("目标 Y / m", -0.38, 0.38, py, 0.01, disabled=fixed_home, help="机械臂左右方向；正Y侧接近左臂，负Y侧接近右臂。")
+    new_z = p3.number_input("目标 Z / m", 0.15, 0.60, pz, 0.01, disabled=fixed_home, help="末端高度；过低可能与工作台碰撞。")
+    if fixed_home:
+        st.caption("该步骤使用经过碰撞检查的固定 Home 关节姿态，因此末端坐标不开放修改。")
     candidate_position = np.array([new_x, new_y, new_z])
     save_pos, reset_pos = st.columns(2)
-    if save_pos.button("保存当前路点", width="stretch"):
+    if save_pos.button("保存当前路点", width="stretch", disabled=fixed_home):
         st.session_state["waypoint_overrides"][stable_key] = candidate_position.tolist()
         st.session_state["custom_q"].pop(stable_key, None)
         st.session_state["run_result"] = None
@@ -101,10 +105,14 @@ else:
 
     active_facility = FACILITIES[TASK_PROFILES[item["kind"]]["facility"]]
     sim = RobotSimulation(st.session_state["items"], active_station=active_facility["station"],
-                          active_region=item["location"])
+                          active_region=item["location"],
+                          active_facility=TASK_PROFILES[item["kind"]]["facility"])
     try:
-        q_target = sim.solve_ik(candidate_position, HOME_Q)
-        st.success("IK 求解成功。下面可进一步修改六个关节角。")
+        active_arm = waypoint.arm
+        other_arm = "right_arm" if active_arm == "left_arm" else "left_arm"
+        q_target = (waypoint.joint_target.copy() if waypoint.joint_target is not None else
+                    sim.solve_ik(candidate_position, HOME_QS[active_arm], active_arm, HOME_QS[other_arm]))
+        st.success(f"{'左臂' if active_arm == 'left_arm' else '右臂'} IK 求解成功。下面可修改该臂六个关节角。")
         custom_q = np.asarray(st.session_state["custom_q"].get(stable_key, q_target.tolist()))
         custom_q = np.clip(custom_q, TEACHING_JOINT_LIMITS[:, 0], TEACHING_JOINT_LIMITS[:, 1])
         joint_cols = st.columns(3)
@@ -125,31 +133,37 @@ else:
             custom_q[i] = np.clip(custom_q[i], lo, hi)
             edited_q.append(joint_cols[i % 3].slider(label, lo, hi, float(custom_q[i]), 0.01, help=joint_help[i]))
         edited_q_array = np.array(edited_q)
-        sim.step_to(edited_q_array)
-        ee = sim.ee_position()
+        sim.step_to(edited_q_array, active_arm)
+        ee = sim.ee_position(active_arm)
         st.write(f"修改后的末端位置：X={ee[0]:.3f}，Y={ee[1]:.3f}，Z={ee[2]:.3f} m")
-        safety_issues = sim.validate_q(edited_q_array)
+        safety_issues = sim.validate_q(edited_q_array, active_arm, HOME_QS[other_arm])
         # Validate the incoming and outgoing segments, not only the endpoint.
-        previous_q = HOME_Q.copy()
+        previous_q = HOME_QS[active_arm].copy()
         for prior_index, prior_waypoint in enumerate(waypoints[:selected_index]):
+            if prior_waypoint.arm != active_arm:
+                continue
             prior_key = waypoint_key(prior_index, prior_waypoint)
             previous_q = (np.asarray(st.session_state["custom_q"][prior_key], dtype=float)
                           if prior_key in st.session_state["custom_q"]
-                          else sim.solve_ik(prior_waypoint.position, previous_q))
-        safety_issues.extend(sim.validate_path(previous_q, edited_q_array, 24))
-        if selected_index + 1 < len(waypoints):
-            next_waypoint = waypoints[selected_index + 1]
-            next_key = waypoint_key(selected_index + 1, next_waypoint)
+                          else prior_waypoint.joint_target.copy() if prior_waypoint.joint_target is not None
+                          else sim.solve_ik(prior_waypoint.position, previous_q, active_arm, HOME_QS[other_arm]))
+        safety_issues.extend(sim.validate_path(previous_q, edited_q_array, 24, active_arm, HOME_QS[other_arm]))
+        next_pair = next(((i, w) for i, w in enumerate(waypoints[selected_index + 1:], selected_index + 1)
+                          if w.arm == active_arm), None)
+        if next_pair:
+            next_index, next_waypoint = next_pair
+            next_key = waypoint_key(next_index, next_waypoint)
             try:
                 next_q = (np.asarray(st.session_state["custom_q"][next_key], dtype=float)
                           if next_key in st.session_state["custom_q"]
-                          else sim.solve_ik(next_waypoint.position, edited_q_array))
-                safety_issues.extend(sim.validate_path(edited_q_array, next_q, 24))
+                          else next_waypoint.joint_target.copy() if next_waypoint.joint_target is not None
+                          else sim.solve_ik(next_waypoint.position, edited_q_array, active_arm, HOME_QS[other_arm]))
+                safety_issues.extend(sim.validate_path(edited_q_array, next_q, 24, active_arm, HOME_QS[other_arm]))
             except Exception as exc:
                 safety_issues.append(f"下一段轨迹无法生成：{exc}")
         safety_issues = list(dict.fromkeys(safety_issues))
         # Path validation mutates MuJoCo state; restore the pose being previewed.
-        sim.step_to(edited_q_array)
+        sim.step_to(edited_q_array, active_arm)
         for issue in safety_issues:
             st.error(issue)
         save_joint, restore_joint = st.columns(2)
@@ -164,25 +178,28 @@ else:
         try:
             with st.expander("观察视角", expanded=False):
                 camera = camera_controls("motion_camera")
-            st.image(sim.render(camera), caption="当前六关节姿态预览", width="stretch")
+                show_joints = st.toggle("显示左右臂关节标注", key="motion_show_joints",
+                                        help="共享机身固定；左右臂分别为6DOF。")
+                st.caption("q1肩部水平旋转｜q2肩部俯仰｜q3肘部俯仰｜q4前臂滚转｜q5腕部俯仰｜q6工具轴旋转")
+            st.image(sim.render(camera, show_joints), caption=f"当前{'左臂' if active_arm == 'left_arm' else '右臂'}六关节姿态预览", width="stretch")
         except Exception:
             pass
     except Exception as exc:
         st.error(f"IK 无解：{exc}")
 
     st.divider()
-    help_heading("AI 运动参数深度解读", "解释 PDDL 动作如何展开为路点和 q1–q6，以及参数变化的因果影响。", 3)
+    help_heading("AI 运动参数深度解读", "解释双臂PDDL如何分配给左右臂，并展开为各自路点和q1–q6。", 3)
     explain_left, explain_right = st.columns([1, 1.7])
     with explain_left:
         motion_question = st.text_input("运动参数提问（可选）", placeholder="例如：安全高度降低会带来什么影响？")
         if st.button("✦ 生成运动参数深度解读", type="primary", width="stretch"):
-            waypoint_rows = "\n".join(f"{i+1}. {w.pddl_action} -> {w.label}: {np.round(w.position, 3).tolist()}"
+            waypoint_rows = "\n".join(f"{i+1}. {w.arm} / {w.pddl_action} -> {w.label}: {np.round(w.position, 3).tolist()}"
                                       for i, w in enumerate(waypoints))
             context = (f"对象：{item['label']} / {item['kind']}\n专用操作：{preset['operation']}\n"
                        f"参数：{motion}\n路点：\n{waypoint_rows}\n关节安全范围：{TEACHING_JOINT_LIMITS.tolist()}")
             try:
                 with st.status("正在分析路点和 6DOF 参数…", expanded=True) as status:
-                    draft = generate_deep_explanation("6DOF 运动规划与参数", context, motion_question)
+                    draft = generate_deep_explanation("双臂6DOF运动规划与参数", context, motion_question)
                     st.session_state["motion_explanation_text"] = draft
                     st.write("正在组织参数因果与风险判读…")
                     st.session_state["motion_explanation_html"] = render_explanation(draft)
