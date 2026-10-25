@@ -3,10 +3,15 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from html_explainer import render_explanation
-from lab_config import FACILITIES, PRESETS, TARGETS, TASK_PROFILES
+from lab_config import FACILITIES, PRESETS, ROUTE_LABELS, TARGETS, TASK_PROFILES
 from lab_state import camera_controls, help_heading, nav, page_header, require_login
 from llm_client import generate_deep_explanation
 from robot_sim import HOME_QS, TEACHING_JOINT_LIMITS, RobotSimulation, waypoints_from_plan
+
+
+RELEASE_ACTIONS = ("place(", "insert-component(", "seat-component(",
+                   "assisted-place(", "assisted-insert(", "assisted-seat(",
+                   "assisted-cover(", "assisted-mount(")
 
 
 def waypoint_key(index, waypoint):
@@ -19,10 +24,15 @@ page_header(3, "3. 双臂任务分工与 6DOF 参数")
 
 if not st.session_state["plan"]:
     st.warning("请先在 PDDL 页面生成动作计划。")
+elif not st.session_state.get("pddl_exercise_completed"):
+    st.warning("请先在 PDDL 规划页完成当前任务的填空检查。填写的安全路线将直接决定本页路点。")
 else:
     item_name = st.session_state["intent"].item
     item = next(x for x in st.session_state["items"] if x["name"] == item_name)
     preset = PRESETS.get(item.get("preset", item.get("label")), PRESETS["熔断器"])
+    selected_route = st.session_state.get("route_choice", "route_left")
+    st.info(f"PDDL已解锁路线：`{selected_route}` — "
+            f"{ROUTE_LABELS.get(selected_route, selected_route)}。表格中 `verify-safe-route` 路点即由该填空结果生成。")
     with st.container(border=True):
         st.markdown(f"#### {item['label']}：{preset['operation']}")
         st.write(preset["guidance"])
@@ -31,8 +41,8 @@ else:
     help_heading("A. 轨迹参数", "这些参数将 PDDL 离散动作展开为可连续执行的末端路点。")
     motion = st.session_state["motion"]
     c1, c2, c3 = st.columns(3)
-    motion["safe_z"] = c1.slider("安全高度 Z / m", 0.48, 0.56, float(motion["safe_z"]), 0.01,
-        help="搬运阶段的末端高度。过低可能碰到工作台或部件，过高会增加路径长度。")
+    motion["safe_z"] = c1.slider("安全高度 Z / m", 0.48, 0.52, float(motion["safe_z"]), 0.01,
+        help="搬运阶段的末端高度。0.52 m是经左右臂与全部工位验证的可达上限；过低则可能碰到工作台或部件。")
     motion["grasp_offset"] = c2.slider("抓取高度偏移 / m", 0.075, 0.090, float(motion["grasp_offset"]), 0.005,
         help="末端中心相对物体中心的垂向偏移，用于让夹爪对准物体。")
     motion["approach_distance"] = c3.slider("轴向接近距离 / m", 0.08, 0.14, float(motion["approach_distance"]), 0.01,
@@ -69,7 +79,37 @@ else:
     if not warnings:
         st.success("当前参数处于推荐教学范围。")
 
-    waypoints = waypoints_from_plan(st.session_state["plan"], st.session_state["items"], TARGETS, motion)
+    with st.container(border=True):
+        help_heading("安全决策选择填空", "答案用于确认PDDL路线如何影响运动参数和上方高压线约束。")
+        route_answer = ROUTE_LABELS.get(selected_route, selected_route)
+        q_route_options = [ROUTE_LABELS["route_left"], ROUTE_LABELS["route_right"],
+                           ROUTE_LABELS["route_high"], ROUTE_LABELS["route_direct"]]
+        q1 = st.radio("填空1：当前PDDL路线的连续运动含义是 ____。",
+                      q_route_options, index=None, key="motion_quiz_route")
+        q2_options = ["继续提高Z，越高越安全",
+                      "降低高度或改为侧向绕行并重新检查",
+                      "关闭碰撞检查后执行"]
+        q2 = st.radio("填空2：若高位路线进入上方高压线安全包络，应 ____。",
+                      q2_options, index=None, key="motion_quiz_overhead")
+        if st.session_state.get("user_role") == "teacher":
+            def fill_motion_answers():
+                st.session_state["motion_quiz_route"] = route_answer
+                st.session_state["motion_quiz_overhead"] = q2_options[1]
+            st.button("教师调试：生成本页答案", on_click=fill_motion_answers,
+                      key="teacher_motion_answers")
+        if st.button("提交安全决策题", key="submit_motion_quiz"):
+            score = int(q1 == route_answer) + int(q2 == q2_options[1])
+            st.session_state["motion_quiz_score"] = score
+        if st.session_state.get("motion_quiz_score") is not None:
+            score = st.session_state["motion_quiz_score"]
+            (st.success if score == 2 else st.warning)(
+                f"安全决策得分：{score}/2。" +
+                ("已理解路线与高压线约束。" if score == 2 else
+                 "请对照PDDL路线和场景中的上方导线重新判断。"))
+
+    waypoints = waypoints_from_plan(
+        st.session_state["plan"], st.session_state["items"], TARGETS, motion,
+        st.session_state.get("hazards", []))
     for index, waypoint in enumerate(waypoints):
         key = waypoint_key(index, waypoint)
         if key in st.session_state["waypoint_overrides"]:
@@ -106,7 +146,8 @@ else:
     active_facility = FACILITIES[TASK_PROFILES[item["kind"]]["facility"]]
     sim = RobotSimulation(st.session_state["items"], active_station=active_facility["station"],
                           active_region=item["location"],
-                          active_facility=TASK_PROFILES[item["kind"]]["facility"])
+                          active_facility=TASK_PROFILES[item["kind"]]["facility"],
+                          hazards=st.session_state.get("hazards", []))
     try:
         active_arm = waypoint.arm
         other_arm = "right_arm" if active_arm == "left_arm" else "left_arm"
@@ -137,33 +178,62 @@ else:
         ee = sim.ee_position(active_arm)
         st.write(f"修改后的末端位置：X={ee[0]:.3f}，Y={ee[1]:.3f}，Z={ee[2]:.3f} m")
         safety_issues = sim.validate_q(edited_q_array, active_arm, HOME_QS[other_arm])
-        # Validate the incoming and outgoing segments, not only the endpoint.
-        previous_q = HOME_QS[active_arm].copy()
-        for prior_index, prior_waypoint in enumerate(waypoints[:selected_index]):
-            if prior_waypoint.arm != active_arm:
-                continue
-            prior_key = waypoint_key(prior_index, prior_waypoint)
-            previous_q = (np.asarray(st.session_state["custom_q"][prior_key], dtype=float)
-                          if prior_key in st.session_state["custom_q"]
-                          else prior_waypoint.joint_target.copy() if prior_waypoint.joint_target is not None
-                          else sim.solve_ik(prior_waypoint.position, previous_q, active_arm, HOME_QS[other_arm]))
-        safety_issues.extend(sim.validate_path(previous_q, edited_q_array, 24, active_arm, HOME_QS[other_arm]))
-        next_pair = next(((i, w) for i, w in enumerate(waypoints[selected_index + 1:], selected_index + 1)
-                          if w.arm == active_arm), None)
-        if next_pair:
-            next_index, next_waypoint = next_pair
-            next_key = waypoint_key(next_index, next_waypoint)
-            try:
-                next_q = (np.asarray(st.session_state["custom_q"][next_key], dtype=float)
-                          if next_key in st.session_state["custom_q"]
-                          else next_waypoint.joint_target.copy() if next_waypoint.joint_target is not None
-                          else sim.solve_ik(next_waypoint.position, edited_q_array, active_arm, HOME_QS[other_arm]))
-                safety_issues.extend(sim.validate_path(edited_q_array, next_q, 24, active_arm, HOME_QS[other_arm]))
-            except Exception as exc:
-                safety_issues.append(f"下一段轨迹无法生成：{exc}")
+
+        # Authoritative check: replay the complete alternating-arm plan with
+        # the candidate override.  This preserves an assistant arm's fixture
+        # hold and the carried object's state, matching page 4 preflight.
+        sequence_custom = dict(st.session_state["custom_q"])
+        sequence_custom[stable_key] = edited_q_array.tolist()
+        sequence_sim = RobotSimulation(
+            st.session_state["items"], active_station=active_facility["station"],
+            active_region=item["location"],
+            active_facility=TASK_PROFILES[item["kind"]]["facility"],
+            hazards=st.session_state.get("hazards", []))
+        sequence_q = {arm: q.copy() for arm, q in HOME_QS.items()}
+        try:
+            for sequence_index, sequence_waypoint in enumerate(waypoints):
+                sequence_arm = sequence_waypoint.arm
+                sequence_other = "right_arm" if sequence_arm == "left_arm" else "left_arm"
+                sequence_key = waypoint_key(sequence_index, sequence_waypoint)
+                sequence_target = (
+                    np.asarray(sequence_custom[sequence_key], dtype=float)
+                    if sequence_key in sequence_custom
+                    else sequence_waypoint.joint_target.copy()
+                    if sequence_waypoint.joint_target is not None
+                    else sequence_sim.solve_ik(sequence_waypoint.position,
+                                               sequence_q[sequence_arm], sequence_arm,
+                                               sequence_q[sequence_other]))
+                segment_issues = sequence_sim.validate_path(
+                    sequence_q[sequence_arm], sequence_target, 24,
+                    sequence_arm, sequence_q[sequence_other])
+                if segment_issues:
+                    safety_issues.extend(
+                        f"完整计划第 {sequence_index + 1} 步：{issue}"
+                        for issue in segment_issues)
+                    break
+                sequence_sim.step_to(sequence_target, sequence_arm)
+                if (sequence_waypoint.pddl_action.startswith(("pick(", "assisted-pick("))
+                        and sequence_waypoint.grip
+                        and sequence_sim.grabbed[sequence_arm] is None):
+                    sequence_sim.set_grab(item["name"], sequence_arm)
+                if (sequence_waypoint.pddl_action.startswith(RELEASE_ACTIONS)
+                        and not sequence_waypoint.grip
+                        and sequence_sim.grabbed[sequence_arm] is not None):
+                    sequence_sim.set_grab(None, sequence_arm)
+                sequence_q[sequence_arm] = sequence_target
+        except Exception as exc:
+            safety_issues.append(f"完整计划无法生成：{exc}")
         safety_issues = list(dict.fromkeys(safety_issues))
         # Path validation mutates MuJoCo state; restore the pose being previewed.
         sim.step_to(edited_q_array, active_arm)
+        clearance = sim.live_work_clearance(active_arm)
+        if np.isfinite(clearance):
+            if clearance < 0:
+                st.metric("当前姿态带电安全裕度", f"{clearance:.3f} m", delta="已侵入",
+                          delta_color="inverse")
+            else:
+                st.metric("当前姿态带电安全裕度", f"{clearance:.3f} m",
+                          delta="距离安全边界")
         for issue in safety_issues:
             st.error(issue)
         save_joint, restore_joint = st.columns(2)

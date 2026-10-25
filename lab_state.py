@@ -11,6 +11,8 @@ import streamlit as st
 
 DEFAULT_APP_USERNAME = "admin"
 DEFAULT_APP_PASSWORD = "admin_123qwe"
+DEFAULT_STUDENT_USERNAME = "student"
+DEFAULT_STUDENT_PASSWORD = "student_123qwe"
 
 
 def _configured_credential(name: str, default: str) -> str:
@@ -22,14 +24,26 @@ def _configured_credential(name: str, default: str) -> str:
     return str(value or os.getenv(name) or default)
 
 
-def credentials_are_valid(username: str, password: str) -> bool:
-    """Compare credentials without leaking which field was incorrect."""
-    expected_username = _configured_credential("APP_USERNAME", DEFAULT_APP_USERNAME)
-    expected_password = _configured_credential("APP_PASSWORD", DEFAULT_APP_PASSWORD)
-    return (
-        hmac.compare_digest(str(username), expected_username)
-        & hmac.compare_digest(str(password), expected_password)
+def authenticated_role(username: str, password: str) -> str | None:
+    """Return the configured course role without revealing which field failed."""
+    accounts = (
+        ("teacher", _configured_credential("TEACHER_USERNAME",
+                                           _configured_credential("APP_USERNAME", DEFAULT_APP_USERNAME)),
+         _configured_credential("TEACHER_PASSWORD",
+                                _configured_credential("APP_PASSWORD", DEFAULT_APP_PASSWORD))),
+        ("student", _configured_credential("STUDENT_USERNAME", DEFAULT_STUDENT_USERNAME),
+         _configured_credential("STUDENT_PASSWORD", DEFAULT_STUDENT_PASSWORD)),
     )
+    for role, expected_username, expected_password in accounts:
+        if (hmac.compare_digest(str(username), expected_username)
+                & hmac.compare_digest(str(password), expected_password)):
+            return role
+    return None
+
+
+def credentials_are_valid(username: str, password: str) -> bool:
+    """Backward-compatible boolean helper used by lightweight tests."""
+    return authenticated_role(username, password) is not None
 
 
 def require_login() -> None:
@@ -49,11 +63,13 @@ def require_login() -> None:
             unsafe_allow_html=True,
         )
         with st.sidebar:
-            st.caption(f"已登录：{st.session_state.get('authenticated_user', '实验用户')}")
+            role_label = "教师" if st.session_state.get("user_role") == "teacher" else "学生"
+            st.caption(f"已登录：{st.session_state.get('authenticated_user', '实验用户')} · {role_label}")
             if st.button("退出登录", key="global_logout", width="stretch"):
                 reset_experiment()
                 st.session_state["authenticated"] = False
                 st.session_state.pop("authenticated_user", None)
+                st.session_state.pop("user_role", None)
                 st.session_state.pop("login_username", None)
                 st.session_state.pop("login_password", None)
                 st.switch_page("app.py")
@@ -99,9 +115,11 @@ def require_login() -> None:
     st.caption("本平台仅用于课程教学与虚拟仿真实验。")
 
     if submitted:
-        if credentials_are_valid(username.strip(), password):
+        role = authenticated_role(username.strip(), password)
+        if role:
             st.session_state["authenticated"] = True
             st.session_state["authenticated_user"] = username.strip()
+            st.session_state["user_role"] = role
             st.rerun()
         else:
             st.error("用户名或密码错误，请重新输入。")
@@ -124,9 +142,27 @@ def init_state() -> None:
         "motion_explanation_text": "",
         "waypoint_overrides": {},
         "custom_q": {},
+        "hazards": [],
+        "hazard_enabled": True,
+        "hazard_seed": 20261024,
+        "hazard_level": "中",
+        "hazard_facility": None,
+        "hazard_offset_x": 0.0,
+        "hazard_offset_y": 0.0,
+        "hazard_scale_x": 1.0,
+        "hazard_scale_y": 1.0,
+        "hazard_margin_delta": 0.0,
+        "error_demo_type": None,
+        "error_demo_checked": False,
+        "pddl_hint_count": 0,
+        "pddl_fill_score": None,
+        "pddl_exercise_completed": False,
+        "route_choice": "route_left",
+        "motion_quiz_score": None,
+        "execution_quiz_score": None,
         "_motion_geometry_signature": None,
-        "camera": {"preset": "默认全景", "azimuth": 132.0, "elevation": -30.0,
-                   "distance": 1.72, "lookat": [0.49, 0.0, 0.22]},
+        "camera": {"preset": "默认全景", "azimuth": 132.0, "elevation": -34.0,
+                   "distance": 2.60, "lookat": [0.55, 0.0, 0.22]},
         "motion": {
             "safe_z": 0.52,
             "grasp_offset": 0.08,
@@ -146,7 +182,12 @@ def reset_experiment() -> None:
         "items", "intent", "problem", "plan", "execution_arm", "waypoints", "run_result", "motion",
         "learning_hint", "deep_explanation_html", "deep_explanation_text",
         "motion_explanation_html", "motion_explanation_text", "waypoint_overrides", "custom_q",
-        "_motion_geometry_signature", "camera",
+        "_motion_geometry_signature", "camera", "hazards", "hazard_enabled",
+        "hazard_seed", "hazard_level", "hazard_facility", "pddl_hint_count",
+        "hazard_offset_x", "hazard_offset_y", "hazard_scale_x", "hazard_scale_y",
+        "hazard_margin_delta", "error_demo_type", "error_demo_checked",
+        "pddl_fill_score", "pddl_exercise_completed", "route_choice",
+        "motion_quiz_score", "execution_quiz_score",
         "scene_tour_active", "scene_tour_step",
     ]:
         st.session_state.pop(key, None)
@@ -161,6 +202,10 @@ def invalidate_after_scene_change() -> None:
         "learning_hint": "", "deep_explanation_html": "", "deep_explanation_text": "",
         "motion_explanation_html": "", "motion_explanation_text": "",
         "waypoint_overrides": {}, "custom_q": {}, "_motion_geometry_signature": None,
+        "pddl_fill_score": None, "pddl_exercise_completed": False,
+        "motion_quiz_score": None, "execution_quiz_score": None,
+        "error_demo_type": None,
+        "error_demo_checked": False,
     }.items():
         st.session_state[key] = value
 
@@ -171,7 +216,25 @@ def invalidate_after_plan_change() -> None:
         "waypoints": [], "run_result": None, "deep_explanation_html": "",
         "deep_explanation_text": "", "motion_explanation_html": "",
         "motion_explanation_text": "", "waypoint_overrides": {}, "custom_q": {},
-        "_motion_geometry_signature": None,
+        "_motion_geometry_signature": None, "pddl_exercise_completed": False,
+        "pddl_fill_score": None,
+        "motion_quiz_score": None, "execution_quiz_score": None,
+        "error_demo_type": None,
+        "error_demo_checked": False,
+    }.items():
+        st.session_state[key] = value
+
+
+def invalidate_after_hazard_change() -> None:
+    """Discard motion products validated against an older exclusion layout."""
+    for key, value in {
+        "waypoints": [], "run_result": None, "waypoint_overrides": {}, "custom_q": {},
+        "_motion_geometry_signature": None, "motion_explanation_html": "",
+        "motion_explanation_text": "", "pddl_exercise_completed": False,
+        "pddl_fill_score": None,
+        "motion_quiz_score": None, "execution_quiz_score": None,
+        "error_demo_type": None,
+        "error_demo_checked": False,
     }.items():
         st.session_state[key] = value
 
@@ -268,10 +331,10 @@ def camera_controls(key_prefix: str = "camera") -> dict:
     """Shared MuJoCo free-camera controls; changing them never resets the experiment."""
     camera = st.session_state["camera"]
     presets = {
-        "默认全景": (132.0, -30.0, 1.72, [0.49, 0.0, 0.22]),
-        "俯视": (90.0, -82.0, 1.60, [0.49, 0.0, 0.16]),
-        "正视": (180.0, -12.0, 1.35, [0.46, 0.0, 0.25]),
-        "侧视": (90.0, -18.0, 1.35, [0.46, 0.0, 0.25]),
+        "默认全景": (132.0, -34.0, 2.60, [0.55, 0.0, 0.22]),
+        "俯视": (90.0, -82.0, 2.55, [0.55, 0.0, 0.16]),
+        "正视": (180.0, -12.0, 1.90, [0.52, 0.0, 0.25]),
+        "侧视": (90.0, -18.0, 1.90, [0.52, 0.0, 0.25]),
         "末端特写": (135.0, -24.0, 0.72, [0.55, 0.0, 0.28]),
     }
     preset_key = f"{key_prefix}_preset"
@@ -286,7 +349,7 @@ def camera_controls(key_prefix: str = "camera") -> dict:
         st.session_state[f"{key_prefix}_dist"] = distance
     st.selectbox("预设视角", list(presets), key=preset_key, on_change=apply_preset,
                  help="选择常用机位；仍可继续调整方位角、俯仰角和缩放。")
-    focus_points = {"整体实验台": [0.49, 0.0, 0.22], "双臂机器人": [0.30, 0.0, 0.30],
+    focus_points = {"整体实验台": [0.55, 0.0, 0.22], "双臂机器人": [0.30, 0.0, 0.30],
                     "左臂": [0.30, 0.30, 0.30], "右臂": [0.30, -0.30, 0.30]}
     for item in st.session_state.get("items", []):
         focus_points[f"操作物体：{item['name']}"] = list(item["position"])
@@ -303,7 +366,7 @@ def camera_controls(key_prefix: str = "camera") -> dict:
                                    key=f"{key_prefix}_az", help="绕实验台水平旋转观察方向。")
     camera["elevation"] = c2.slider("俯仰角 / °", min_value=-85.0, max_value=10.0, step=2.0,
                                      key=f"{key_prefix}_el", help="负值越大越接近俯视。")
-    camera["distance"] = c3.slider("缩放距离 / m", min_value=0.55, max_value=2.40, step=0.05,
+    camera["distance"] = c3.slider("缩放距离 / m", min_value=0.55, max_value=3.00, step=0.05,
                                     key=f"{key_prefix}_dist", help="数值越小，画面越聚焦。")
     st.session_state["camera"] = camera
     return camera

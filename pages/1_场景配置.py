@@ -1,9 +1,12 @@
 import streamlit as st
 
-from lab_config import (ARM_ROLES, FACILITIES, PRESETS, REGIONS, STATIONS, TASK_PROFILES,
+from lab_config import (ARM_ROLES, FACILITIES, HAZARD_LEVELS, POWER_LINES, PRESETS,
+                        REGIONS, STATIONS, TASK_PROFILES, adjust_hazard_zones,
+                        generate_hazard_zones, hazard_layout_is_valid,
                         point_in_region, region_for_point)
-from lab_state import (camera_controls, invalidate_after_scene_change, nav, page_header,
-                       require_login, spotlight_tour)
+from lab_state import (camera_controls, invalidate_after_hazard_change,
+                       invalidate_after_scene_change, nav, page_header, require_login,
+                       spotlight_tour)
 from planner import safe_symbol
 from robot_sim import RobotSimulation
 
@@ -111,6 +114,80 @@ with left:
 
 with right, st.container(key="tour-scene"):
     st.subheader("当前场景")
+    with st.expander("带电作业教学区域", expanded=True):
+        st.warning("带电区域和安全距离为课程中的几何抽象，不代表真实电场、电弧或法定带电作业距离。")
+        st.caption("上方固定高压线是第二类约束：侧向绕行不能无限抬高，仿真会同时检查随机带电区和高压线安全包络。")
+        st.dataframe([{
+            "上方导线": line["name"], "X / m": line["start"][0],
+            "Z / m": line["start"][2], "教学安全包络 / m": line["safe_margin"],
+        } for line in POWER_LINES], hide_index=True, width="stretch")
+        h1, h2, h3 = st.columns([1, 1, 1.2])
+        hazard_enabled = h1.toggle("启用带电区域", key="hazard_enabled",
+                                   on_change=invalidate_after_hazard_change)
+        hazard_level = h2.selectbox("风险等级", list(HAZARD_LEVELS), key="hazard_level",
+                                    on_change=invalidate_after_hazard_change)
+        hazard_seed = h3.number_input("场景随机种子", min_value=0, max_value=99999999,
+                                      step=1, key="hazard_seed",
+                                      on_change=invalidate_after_hazard_change)
+
+        def reroll_hazards():
+            # Button callbacks run before widget construction on the rerun, so
+            # changing the number-input key here avoids Streamlit's
+            # "widget value cannot be modified after instantiation" error.
+            st.session_state["hazard_seed"] = (int(st.session_state["hazard_seed"]) + 1) % 100000000
+            invalidate_after_hazard_change()
+
+        st.button("重新随机生成带电区域", width="stretch",
+                  on_click=reroll_hazards)
+        with st.expander("手动微调带电区坐标与尺寸", expanded=False):
+            st.caption("微调以当前随机种子的几何为基准；系统会限制工作台边界，且任何变化都会使旧轨迹失效。")
+            o1, o2 = st.columns(2)
+            o1.slider("中心 X 偏移 / m", -0.08, 0.08,
+                      step=0.01, key="hazard_offset_x",
+                      on_change=invalidate_after_hazard_change)
+            o2.slider("中心 Y 偏移 / m", -0.12, 0.12,
+                      step=0.01, key="hazard_offset_y",
+                      on_change=invalidate_after_hazard_change)
+            s1, s2, s3 = st.columns(3)
+            s1.slider("X方向尺寸倍率", 0.80, 1.40, step=0.05,
+                      key="hazard_scale_x", on_change=invalidate_after_hazard_change)
+            s2.slider("Y方向尺寸倍率", 0.80, 1.40, step=0.05,
+                      key="hazard_scale_y", on_change=invalidate_after_hazard_change)
+            s3.slider("安全边界增量 / m", -0.01, 0.03, step=0.005,
+                      key="hazard_margin_delta", on_change=invalidate_after_hazard_change)
+            def reset_hazard_geometry():
+                for control, value in {
+                    "hazard_offset_x": 0.0, "hazard_offset_y": 0.0,
+                    "hazard_scale_x": 1.0, "hazard_scale_y": 1.0,
+                    "hazard_margin_delta": 0.0,
+                }.items():
+                    st.session_state[control] = value
+                invalidate_after_hazard_change()
+            st.button("恢复随机区域默认几何", width="stretch",
+                      on_click=reset_hazard_geometry)
+        if hazard_enabled:
+            base_hazards = generate_hazard_zones(
+                profile["facility"], int(st.session_state["hazard_seed"]),
+                hazard_level, (x, y))
+            hazards = adjust_hazard_zones(
+                base_hazards, st.session_state["hazard_offset_x"],
+                st.session_state["hazard_offset_y"], st.session_state["hazard_scale_x"],
+                st.session_state["hazard_scale_y"], st.session_state["hazard_margin_delta"])
+            if not hazard_layout_is_valid(hazards):
+                hazards = base_hazards
+                st.warning("微调后区域超出工作台或安全边界，本次预览已回退到当前随机种子的默认几何。")
+            st.session_state["hazards"] = hazards
+            st.session_state["hazard_facility"] = profile["facility"]
+            st.success(f"已在当前物体到{facility['label']}的默认运输路径上生成"
+                       f" {len(hazards)} 个带电障碍；后续需在PDDL中选择绕行路线。")
+            st.dataframe([{"区域": z["name"], "风险等级": z["risk_level"],
+                           "中心X": z["center"][0], "中心Y": z["center"][1],
+                           "尺寸": f"{2*z['half_size'][0]:.2f} × {2*z['half_size'][1]:.2f} m",
+                           "安全扩张": f"{z['safe_margin']:.3f} m"} for z in hazards],
+                         hide_index=True, width="stretch")
+        else:
+            st.session_state["hazards"] = []
+            st.session_state["hazard_facility"] = None
     with st.expander("固定检修设施（系统预置）"):
         st.dataframe([{"颜色区域": f"{STATIONS[x['station']]['color']}区域", "工位": STATIONS[x["station"]]["label"],
                        "设施": x["label"], "作用": x["kind"], "X": x["position"][0],
@@ -133,7 +210,8 @@ with right, st.container(key="tour-scene"):
             st.rerun()
     try:
         sim = RobotSimulation(st.session_state["items"], active_station=facility["station"],
-                              active_region=region, active_facility=profile["facility"])
+                              active_region=region, active_facility=profile["facility"],
+                              hazards=st.session_state["hazards"])
         with st.expander("观察视角", expanded=False):
             camera = camera_controls("scene_camera")
             show_joints = st.toggle("显示左右臂关节标注", key="scene_show_joints",
@@ -142,6 +220,9 @@ with right, st.container(key="tour-scene"):
         st.image(sim.render(camera, show_joints), caption=f"当前高亮语义区域：{region_config['color']}{region_config['label']}", width="stretch")
         st.caption("工位：蓝色是拆装工位｜灰色是模块检修工位｜橙色是检测操作工位｜黄色是绝缘防护工位｜紫蓝色是剥线接线协作工位")
         st.caption("语义区域：青色检修区｜紫色备件区｜绿色工具区｜白色安全区｜红色回收区；当前选择的区域会加亮。")
+        if st.session_state["hazards"]:
+            st.caption("带电教学区域：半透明红色体积位于初始区到目标工位的运输走廊上；橙色虚线是加入教学安全裕度后的边界，必须从其一侧绕行。")
+        st.caption("上方红色导线为固定高压线；高位路线侵入其安全包络时，系统会拒绝执行并指出危险源。")
     except Exception as exc:
         st.warning(f"当前会话无法创建图形预览：{exc}")
 

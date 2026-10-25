@@ -8,7 +8,7 @@ import re
 
 DOMAIN_PDDL = """(define (domain dual-arm-power-maintenance)
   (:requirements :strips :typing)
-  (:types component location arm)
+  (:types component location arm route)
   (:predicates
     (at ?x - component ?p - location)
     (arm-empty ?a - arm)
@@ -18,7 +18,15 @@ DOMAIN_PDDL = """(define (domain dual-arm-power-maintenance)
     (stabilized ?x - component)
     (stripped ?x - component)
     (tested ?x - component ?p - location)
-    (operated ?x - component ?p - location))
+    (operated ?x - component ?p - location)
+    (hazard-mapped ?p - location)
+    (route-open ?r - route)
+    (route-approved ?a - arm ?p - location))
+
+  (:action verify-safe-route
+    :parameters (?a - arm ?p - location ?r - route)
+    :precondition (and (arm-empty ?a) (hazard-mapped ?p) (route-open ?r))
+    :effect (route-approved ?a ?p))
 
   (:action pick
     :parameters (?a - arm ?x - component ?p - location)
@@ -52,12 +60,12 @@ DOMAIN_PDDL = """(define (domain dual-arm-power-maintenance)
 
   (:action stage-component
     :parameters (?a - arm ?x - component ?p - location)
-    :precondition (holding ?a ?x)
+    :precondition (and (holding ?a ?x) (route-approved ?a ?p))
     :effect (holding ?a ?x))
 
   (:action stabilize-fixture
     :parameters (?a - arm ?p - location)
-    :precondition (arm-empty ?a)
+    :precondition (and (arm-empty ?a) (route-approved ?a ?p))
     :effect (and (fixture-stable ?p) (stabilizing ?a ?p)
                  (not (arm-empty ?a))))
 
@@ -165,11 +173,15 @@ def build_problem(items: list[dict], intent: Intent) -> str:
   (:objects
     {' '.join(names) or 'placeholder'} - component
     {' '.join(locations)} - location
-    left_arm right_arm - arm)
+    left_arm right_arm - arm
+    route_left route_right route_high route_direct - route)
   (:init
     (arm-empty left_arm)
     (arm-empty right_arm)
-    {init})
+    {init}
+    {' '.join(f'(hazard-mapped {location})' for location in locations)}
+    (route-open route_left) (route-open route_right)
+    (route-open route_high) (route-open route_direct))
   (:goal {goal}))
 """
 
@@ -180,14 +192,21 @@ def _preferred_arm(item: dict, target: str) -> str:
     return "left_arm" if target_y >= 0 else "right_arm"
 
 
-def make_plan(items: list[dict], intent: Intent, execution_arm: str | None = None) -> list[dict]:
+def make_plan(items: list[dict], intent: Intent, execution_arm: str | None = None,
+              route_choice: str = "route_auto") -> list[dict]:
     from lab_config import TASK_MODES
 
     item = next((x for x in items if safe_symbol(x["name"]) == intent.item), None)
     if item is None:
         raise ValueError(f"场景中不存在物体：{intent.item}")
+    if route_choice not in {"route_auto", "route_left", "route_right", "route_high", "route_direct"}:
+        raise ValueError("未知安全路线，请使用 route_left、route_right、route_high 或 route_direct。")
     source = safe_symbol(item["location"])
     mode = TASK_MODES[item["kind"]]
+    if route_choice == "route_auto":
+        route_arm = (execution_arm or
+                     ("left_arm" if item["kind"] == "wire" else _preferred_arm(item, intent.target)))
+        route_choice = "route_left" if route_arm == "left_arm" else "route_right"
     if mode == "dual" and execution_arm is not None:
         raise ValueError("该任务已锁定为双臂协作，不能传入左臂或右臂单臂选项。")
     if mode == "single" and execution_arm not in {None, "left_arm", "right_arm"}:
@@ -204,6 +223,8 @@ def make_plan(items: list[dict], intent: Intent, execution_arm: str | None = Non
             raise ValueError("导线剝线与接线任务必须使用双臂，不能指定单臂。")
         return [
             {"action": "pick", "args": ["left_arm", intent.item, source]},
+            {"action": "verify-safe-route", "args": ["left_arm", "wire_strip_station", route_choice]},
+            {"action": "verify-safe-route", "args": ["right_arm", "wire_strip_station", route_choice]},
             {"action": "hold-wire", "args": ["left_arm", intent.item]},
             {"action": "strip-wire", "args": ["right_arm", intent.item, "wire_strip_station"]},
             {"action": "insert-wire", "args": ["left_arm", intent.item, "terminal_slot"]},
@@ -221,6 +242,7 @@ def make_plan(items: list[dict], intent: Intent, execution_arm: str | None = Non
         }[item["kind"]]
         plan = [
             {"action": "pick", "args": [arm, intent.item, source]},
+            {"action": "verify-safe-route", "args": [arm, intent.target, route_choice]},
             {"action": "stage-component", "args": [arm, intent.item, intent.target]},
             {"action": task_action, "args": [arm, intent.item, intent.target]},
         ]
@@ -242,7 +264,9 @@ def make_plan(items: list[dict], intent: Intent, execution_arm: str | None = Non
     }.get(item["kind"], "assisted-place")
     plan = [
         {"action": "pick", "args": [primary, intent.item, source]},
+        {"action": "verify-safe-route", "args": [primary, intent.target, route_choice]},
         {"action": "stage-component", "args": [primary, intent.item, intent.target]},
+        {"action": "verify-safe-route", "args": [assistant, intent.target, route_choice]},
         {"action": "stabilize-fixture", "args": [assistant, intent.target]},
         {"action": collaboration_action, "args": [primary, assistant, intent.item, intent.target]},
         {"action": "release-fixture", "args": [assistant, intent.target]},
@@ -259,6 +283,67 @@ def plan_as_text(plan: list[dict]) -> str:
         f"{index}: ({step['action']} {' '.join(step['args'])})".rstrip()
         for index, step in enumerate(plan)
     )
+
+
+def pddl_fill_exercise(level: str, intent: Intent, item_kind: str = "",
+                       route_choice: str = "route_left") -> dict:
+    """Return a deterministic course exercise tied to the current task."""
+    goal_predicate = {
+        "probe": "tested",
+        "operating_rod": "operated",
+    }.get(item_kind, "at")
+    if level == "基础":
+        return {
+            "title": "识别Problem的Domain与目标",
+            "template": ("(:domain ____1____)\n(:goal (" + goal_predicate +
+                         " {item} ____2____))").format(item=intent.item),
+            "blanks": [
+                {"label": "空格1：Domain名称", "answer": "dual-arm-power-maintenance",
+                 "hint": "Problem必须引用本页只读Domain顶部define中的名称。"},
+                {"label": "空格2：目标位置", "answer": intent.target,
+                 "hint": "目标位置来自本次自然语言任务识别结果。"},
+            ],
+        }
+    if level == "进阶":
+        return {
+            "title": "补全带电环境安全状态",
+            "template": ("(:init\n  (____1____ {target})\n  (arm-empty left_arm))\n"
+                         "(:goal (____2____ {item} {target}))").format(
+                             item=intent.item, target=intent.target),
+            "blanks": [
+                {"label": "空格1：风险区已完成映射", "answer": "hazard-mapped",
+                 "hint": "该谓词表示规划器已经知道目标附近的带电风险分布。"},
+                {"label": "空格2：目标谓词", "answer": goal_predicate,
+                 "hint": ({"tested": "验电任务的目标表示检测已完成。",
+                           "operated": "开关操作任务的目标表示操作已完成。"}
+                          .get(goal_predicate,
+                               "普通安装任务使用描述物体位置的二元谓词。"))},
+            ],
+        }
+    return {
+        "title": "补全安全路线并将其传递给后续运动",
+        "template": ("(:action verify-safe-route\n"
+                     " :parameters (?a - arm ?p - location ?r - route)\n"
+                     " :precondition (and (arm-empty ?a) (____1____ ?p) (route-open ?r))\n"
+                     " :effect (route-approved ?a ?p))\n"
+                     "\n; 本次选择的绕行路线\n"
+                     "(verify-safe-route left_arm {target} ____2____)"
+                     ).format(target=intent.target),
+        "blanks": [
+            {"label": "空格1：目标风险已建图", "answer": "hazard-mapped",
+             "hint": "只有已完成风险建图的位置才能进行路线验证。"},
+            {"label": "空格2：传递给运动规划的路线名", "answer": route_choice,
+             "hint": "这个 route 对象会直接决定第三页生成的绕行路点。"},
+        ],
+    }
+
+
+def grade_pddl_blanks(exercise: dict, responses: list[str]) -> tuple[int, list[bool]]:
+    def normalized(value: str) -> str:
+        return re.sub(r"\s+", " ", value.strip().lower()).strip("() ")
+    checks = [normalized(response) == normalized(blank["answer"])
+              for response, blank in zip(responses, exercise["blanks"])]
+    return sum(checks), checks
 
 
 def intent_from_problem(problem: str, items: list[dict], targets: dict[str, tuple]) -> Intent:

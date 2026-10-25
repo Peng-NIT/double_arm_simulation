@@ -19,7 +19,8 @@ if sys.platform.startswith("linux"):
 import numpy as np
 import mujoco
 
-from lab_config import FACILITIES, REGIONS, STATIONS, TASK_MODES, TASK_PROFILES, WORKBENCH
+from lab_config import (FACILITIES, POWER_LINES, REGIONS, STATIONS, TASK_MODES, TASK_PROFILES,
+                        WORKBENCH)
 
 
 # A visibly safe pose above the workbench rather than the model's zero pose.
@@ -117,13 +118,73 @@ def _arm_actuators(arm: str) -> str:
 def _fixture_support_position(target: np.ndarray, assistant_arm: str) -> np.ndarray:
     """Return the reachable outer-frame point braced by the assistant arm."""
     side = -1.0 if assistant_arm == "right_arm" else 1.0
-    return np.array([max(0.50, target[0] - 0.08), target[1] + side * 0.32,
+    return np.array([max(0.50, target[0] - 0.08), target[1] + side * 0.42,
                      max(0.24, target[2] + 0.11)])
+
+
+def _hazard_xml(zones: list[dict]) -> str:
+    """Render non-colliding live-work volumes and dashed clearance borders."""
+    bodies = []
+    for zone in zones:
+        x, y, z = zone["center"]
+        sx, sy, sz = zone["half_size"]
+        margin = float(zone["safe_margin"])
+        rgba = zone["rgba"]
+        name = escape(zone["name"])
+        dashes = []
+        dash = 0.028
+        gap = 0.022
+        outer_x, outer_y = sx + margin, sy + margin
+        count_x = max(2, int((2 * outer_x) / (dash + gap)))
+        count_y = max(2, int((2 * outer_y) / (dash + gap)))
+        for i in range(count_x):
+            px = -outer_x + (i + 0.5) * (2 * outer_x / count_x)
+            dashes.append(f'<geom type="box" pos="{px} {outer_y} {-sz + 0.008}" size="{dash/2} 0.006 0.004" rgba="1 0.66 0.08 0.95" contype="0" conaffinity="0"/>')
+            dashes.append(f'<geom type="box" pos="{px} {-outer_y} {-sz + 0.008}" size="{dash/2} 0.006 0.004" rgba="1 0.66 0.08 0.95" contype="0" conaffinity="0"/>')
+        for i in range(count_y):
+            py = -outer_y + (i + 0.5) * (2 * outer_y / count_y)
+            dashes.append(f'<geom type="box" pos="{outer_x} {py} {-sz + 0.008}" size="0.006 {dash/2} 0.004" rgba="1 0.66 0.08 0.95" contype="0" conaffinity="0"/>')
+            dashes.append(f'<geom type="box" pos="{-outer_x} {py} {-sz + 0.008}" size="0.006 {dash/2} 0.004" rgba="1 0.66 0.08 0.95" contype="0" conaffinity="0"/>')
+        bodies.append(
+            f'<body name="{name}" pos="{x} {y} {z}">'
+            f'<geom type="box" size="{sx} {sy} {sz}" rgba="{rgba}" contype="0" conaffinity="0" group="2"/>'
+            f'{"".join(dashes)}</body>'
+        )
+    return "".join(bodies)
+
+
+def _power_lines_xml() -> str:
+    wires = []
+    for index, line in enumerate(POWER_LINES):
+        x1, y1, z1 = line["start"]
+        x2, y2, z2 = line["end"]
+        radius = line["radius"]
+        rgba = line.get("rgba", "0.72 0.08 0.12 1")
+        wires.append(
+            f'<geom name="{line["name"]}" type="capsule" '
+            f'fromto="{x1} {y1} {z1} {x2} {y2} {z2}" size="{radius}" '
+            f'rgba="{rgba}" contype="0" conaffinity="0" group="2"/>'
+        )
+        # White porcelain and gold warning collars make the conductor distinct
+        # from both robot arms at every camera angle.
+        for support_y in (-0.76, 0.76):
+            wires.append(
+                f'<geom type="cylinder" pos="{x1} {support_y} {z1 + 0.045}" '
+                f'size="0.024 0.045" rgba="0.88 0.90 0.92 1" '
+                f'contype="0" conaffinity="0" group="2"/>'
+            )
+            wires.append(
+                f'<geom type="cylinder" pos="{x1} {support_y} {z1 + 0.092}" '
+                f'size="0.030 0.007" rgba="0.96 0.66 0.08 1" '
+                f'contype="0" conaffinity="0" group="2"/>'
+            )
+    return "".join(wires)
 
 
 def build_xml(items: list[dict], active_station: str | None = None,
               active_region: str | None = None,
-              active_facility: str | None = None) -> str:
+              active_facility: str | None = None,
+              hazards: list[dict] | None = None) -> str:
     bodies = []
     table_x, table_y, table_z = WORKBENCH["center"]
     table_sx, table_sy, table_sz = WORKBENCH["half_size"]
@@ -241,13 +302,15 @@ def build_xml(items: list[dict], active_station: str | None = None,
 <worldbody>
   <light pos="0.25 -0.7 1.7" dir="0.2 0.25 -1" diffuse="0.95 0.92 0.86" castshadow="true"/>
   <light pos="1.1 0.6 1.2" dir="-0.5 -0.2 -0.8" diffuse="0.40 0.52 0.62" castshadow="false"/>
-  <camera name="overview" pos="1.58 -1.72 1.20" xyaxes="0.74 0.67 0 -0.36 0.40 0.84" fovy="43"/>
+  <camera name="overview" pos="1.88 -2.22 1.48" xyaxes="0.76 0.65 0 -0.34 0.40 0.85" fovy="46"/>
   <geom type="plane" size="2 2 0.1" material="floor"/>
   <body name="table" pos="{table_x} {table_y} {table_z}"><geom type="box" size="{table_sx} {table_sy} {table_sz}" rgba="0.38 0.43 0.45 1"/></body>
   <body name="panel" pos="1.08 0.43 0.31"><geom type="box" size="0.025 0.11 0.27" rgba="0.18 0.22 0.24 1"/></body>
   {''.join(station_pads)}
   {''.join(region_pads)}
   {''.join(fixtures)}
+  {_hazard_xml(hazards or [])}
+  {_power_lines_xml()}
   <body name="dual_base" pos="0 0 0.07">
     <geom type="box" pos="0 0 0.035" size="0.13 0.21 0.035" material="joint-dark"/>
     <geom type="box" pos="0 0 0.17" size="0.10 0.15 0.11" material="robot-shell"/>
@@ -276,10 +339,12 @@ def build_xml(items: list[dict], active_station: str | None = None,
 class RobotSimulation:
     def __init__(self, items: list[dict], active_station: str | None = None,
                  active_region: str | None = None,
-                 active_facility: str | None = None):
+                 active_facility: str | None = None,
+                 hazards: list[dict] | None = None):
         self.items = items
         self.model = mujoco.MjModel.from_xml_string(
-            build_xml(items, active_station, active_region, active_facility))
+            build_xml(items, active_station, active_region, active_facility, hazards))
+        self.hazards = hazards or []
         self.data = mujoco.MjData(self.model)
         self.arms = ("left_arm", "right_arm")
         self.joint_qadr = {}
@@ -346,6 +411,71 @@ class RobotSimulation:
     def ee_position(self, arm: str = "left_arm") -> np.ndarray:
         return self.data.site_xpos[self.site_ids[arm]].copy()
 
+    @staticmethod
+    def _point_box_clearance(point: np.ndarray, zone: dict, radius: float = 0.0) -> float:
+        """Signed clearance to an inflated axis-aligned hazard volume."""
+        center = np.asarray(zone["center"], dtype=float)
+        half = np.asarray(zone.get("clearance_half_size", zone["half_size"]), dtype=float)
+        half += float(zone.get("safe_margin", 0.0)) + radius
+        delta = np.abs(np.asarray(point, dtype=float) - center) - half
+        outside = np.maximum(delta, 0.0)
+        if np.any(delta > 0):
+            return float(np.linalg.norm(outside))
+        return float(np.max(delta))
+
+    def hazard_clearance(self, arm: str | None = None) -> float:
+        """Minimum sampled link clearance; negative means safety-volume intrusion."""
+        if not self.hazards:
+            return float("inf")
+        arms = (arm,) if arm else self.arms
+        clearances = []
+        for current_arm in arms:
+            # The exclusion volume is defined for the tool centre and carried
+            # component.  This gives students a stable, inspectable clearance
+            # rule while ordinary MuJoCo contacts continue to protect every
+            # proximal link from physical penetration.
+            samples = [self.ee_position(current_arm)]
+            for zone in self.hazards:
+                clearances.extend(self._point_box_clearance(p, zone, 0.015) for p in samples)
+        return min(clearances) if clearances else float("inf")
+
+    def hazard_report(self, arm: str | None = None) -> list[str]:
+        clearance = self.hazard_clearance(arm)
+        if clearance < -0.012:
+            return [f"机械臂侵入带电教学禁止区 {abs(clearance):.3f} m"]
+        return []
+
+    @staticmethod
+    def _point_segment_distance(point: np.ndarray, start: np.ndarray, end: np.ndarray) -> float:
+        segment = end - start
+        denominator = float(np.dot(segment, segment))
+        t = 0.0 if denominator == 0 else float(np.clip(
+            np.dot(point - start, segment) / denominator, 0.0, 1.0))
+        return float(np.linalg.norm(point - (start + t * segment)))
+
+    def power_line_clearance(self, arm: str | None = None) -> float:
+        arms = (arm,) if arm else self.arms
+        values = []
+        for current_arm in arms:
+            point = self.ee_position(current_arm)
+            for line in POWER_LINES:
+                distance = self._point_segment_distance(
+                    point, np.asarray(line["start"], dtype=float),
+                    np.asarray(line["end"], dtype=float))
+                values.append(distance - float(line["radius"]) - float(line["safe_margin"]) - 0.03)
+        return min(values) if values else float("inf")
+
+    def live_work_clearance(self, arm: str | None = None) -> float:
+        return min(self.hazard_clearance(arm), self.power_line_clearance(arm))
+
+    def power_line_report(self, arm: str | None = None) -> list[str]:
+        clearance = self.power_line_clearance(arm)
+        if clearance < -0.005:
+            return [f"末端/工具侵入上方高压线安全包络 {abs(clearance):.3f} m"]
+        if clearance < 0.025:
+            return [f"末端/工具距上方高压线仅 {max(0.0, clearance):.3f} m"]
+        return []
+
     def collision_report(self, q: np.ndarray, arm: str = "left_arm",
                          other_q: np.ndarray | None = None) -> list[str]:
         """Return robot/environment penetrations for a teaching configuration."""
@@ -401,6 +531,13 @@ class RobotSimulation:
         if collisions:
             issues.append("检测到穿模/碰撞：" + "、".join(collisions))
         ee = self.ee_position(arm)
+        # The corridor hazard becomes active after the component/tool has been
+        # picked.  Before that, the arm is only travelling inside the robot-side
+        # preparation zone; after pickup, both the carrying and assisting arm
+        # must respect the selected live-work route.
+        if any(self.grabbed.values()):
+            issues.extend(self.hazard_report(arm))
+        issues.extend(self.power_line_report(arm))
         for axis, value in zip(("x", "y", "z"), ee):
             lo, hi = WORKSPACE_LIMITS[axis]
             if not lo <= value <= hi:
@@ -466,21 +603,28 @@ class RobotSimulation:
 
 
 def waypoints_from_plan(
-    plan: list[dict], items: list[dict], targets: dict[str, tuple], motion: dict | None = None
+    plan: list[dict], items: list[dict], targets: dict[str, tuple], motion: dict | None = None,
+    hazards: list[dict] | None = None,
 ) -> list[Waypoint]:
+    from lab_config import route_waypoints
+
     motion = motion or {}
+    hazards = hazards or []
     safe_z = float(motion.get("safe_z", SAFE_Z))
     grasp_offset = float(motion.get("grasp_offset", 0.08))
     approach_distance = float(motion.get("approach_distance", 0.10))
     by_name = {item["name"]: item for item in items}
     result: list[Waypoint] = []
     held = None
+    holder_arm = None
+    active_route = None
     for step in plan:
         start_index = len(result)
         action = step["action"]
         arm = step["args"][0] if step.get("args") and step["args"][0] in HOME_QS else "left_arm"
         if action in {"pick", "assisted-pick"}:
             held = step["args"][1] if action == "pick" else step["args"][2]
+            holder_arm = arm
             pick_action = f"{action}({held})"
             pos = np.array(by_name[held]["position"], dtype=float)
             kind = by_name[held]["kind"]
@@ -580,9 +724,25 @@ def waypoints_from_plan(
                 "operating_rod": ("保持长杆方向移动", "定向低速就位", "释放绝缘操作杆"),
             }.get(kind, ("移动至目标上方", "下降放置", "松开夹爪"))
             if action == "place" and kind in {"probe", "operating_rod"}:
-                result.append(Waypoint("携带工具先退回该臂安全过渡位",
-                                       np.array([0.52, 0.38 if arm == "left_arm" else -0.38, 0.35]),
-                                       True, place_action, arm, HOME_QS[arm].copy()))
+                if hazards and active_route:
+                    operation_target = targets[TASK_PROFILES[kind]["facility"]]
+                    return_side = 1.0 if arm == "left_arm" else -1.0
+                    result.append(Waypoint(
+                        "工具归位：先退回工位外侧安全等待位",
+                        np.array([max(0.50, operation_target[0] - 0.04),
+                                  operation_target[1] + return_side * 0.18, safe_z]),
+                        True, place_action))
+                    reverse_points = list(reversed(route_waypoints(
+                        active_route, hazards, by_name[held]["position"],
+                        operation_target, safe_z)))
+                    for return_index, return_point in enumerate(reverse_points, start=1):
+                        result.append(Waypoint(
+                            f"工具归位：沿 {active_route} 反向返回路点 {return_index}",
+                            np.asarray(return_point, dtype=float), True, place_action))
+                else:
+                    result.append(Waypoint("携带工具先退回该臂安全过渡位",
+                                           np.array([0.52, 0.38 if arm == "left_arm" else -0.38, 0.35]),
+                                           True, place_action, arm, HOME_QS[arm].copy()))
             if action in {"insert-component", "assisted-insert"}:
                 support_prefix = "辅臂稳定插槽，" if assisted else ""
                 pre = target + np.array([-min(0.10, approach_distance), 0, 0.025])
@@ -636,6 +796,7 @@ def waypoints_from_plan(
                                        np.array([target[0], target[1] + side * 0.18, safe_z]),
                                        False, place_action))
             held = None
+            holder_arm = None
         elif action in {"test-component", "operate-component", "assisted-test", "assisted-operate"}:
             assisted = action.startswith("assisted-")
             item_name = step["args"][2] if assisted else step["args"][1]
@@ -660,7 +821,7 @@ def waypoints_from_plan(
                 support_prefix = "辅臂稳定开关座，" if assisted else ""
                 contact = np.array([target[0], target[1], tool_tip_z])
                 pre = contact + np.array([-min(0.10, approach_distance), 0, 0.03])
-                pushed = contact + np.array([min(0.035, approach_distance / 2), 0, 0])
+                pushed = contact + np.array([min(0.020, approach_distance / 2), 0, 0])
                 result.extend([
                     Waypoint("主臂调整操作杆与开关方向一致", pre, True,
                              f"{action}({item_name})"),
@@ -669,12 +830,55 @@ def waypoints_from_plan(
                     Waypoint("沿开关行程定向推动", pushed, True, f"{action}({item_name})"),
                     Waypoint("操作完成，沿原路回撤", pre, True, f"{action}({item_name})"),
                 ])
+        elif action == "verify-safe-route":
+            if not hazards:
+                continue
+            if next(iter(by_name.values()))["kind"] == "wire" and holder_arm != arm:
+                # The right arm remains on the equipment side and approaches
+                # the stripping tool through its dedicated collision-tested
+                # waypoint sequence; only the carried wire crosses the hazard.
+                continue
+            target_name = step["args"][1]
+            route_name = step["args"][2] if len(step["args"]) > 2 else "route_left"
+            if holder_arm == arm:
+                active_route = route_name
+            target = targets[target_name]
+            effective_route = route_name
+            if holder_arm != arm:
+                effective_route = "route_high"
+            # The selected task object defines the transport corridor.  For an
+            # assistant arm the same route name is retained, but it approaches
+            # the barrier from its mirrored side through the following fixture
+            # support waypoint.
+            item_start = next(iter(by_name.values()))["position"]
+            route_points = route_waypoints(
+                effective_route, hazards, item_start, target, safe_z)
+            fixed_route_joint = None
+            if effective_route == "route_high":
+                arm_side = 1.0 if arm == "left_arm" else -1.0
+                support = _fixture_support_position(np.asarray(target, dtype=float), arm)
+                if holder_arm != arm:
+                    route_points = [(0.52, arm_side * 0.38, safe_z),
+                                    (float(support[0]), float(support[1]), safe_z)]
+                else:
+                    route_points.insert(0, (0.52, arm_side * 0.38, safe_z))
+            for route_index, route_point in enumerate(route_points, start=1):
+                result.append(Waypoint(
+                    f"PDDL路线 {effective_route}：绕行路点 {route_index}",
+                    np.asarray(route_point, dtype=float), holder_arm == arm,
+                    f"verify-safe-route({route_name})", arm,
+                    (fixed_route_joint.copy()
+                     if fixed_route_joint is not None and route_index == 1 else None)))
         elif action == "stage-component":
             item_name = step["args"][1]
             target_name = step["args"][2]
             target = np.array(targets[target_name], dtype=float)
+            # Keep the symbolic route-approved state visible in continuous
+            # motion.  Each arm uses its own lane on the robot side of the
+            # exclusion volumes; merging both wrists into the centre line can
+            # make the compact shared-torso model collide with itself.
             primary_side = 1.0 if arm == "left_arm" else -1.0
-            result.append(Waypoint("主臂携带部件进入目标工位上方等待位",
+            result.append(Waypoint("路线已批准：主臂沿本臂安全通道进入等待位",
                                    np.array([max(0.50, target[0] - 0.04),
                                              target[1] + primary_side * 0.18,
                                              safe_z]), True,
@@ -707,8 +911,12 @@ def waypoints_from_plan(
                 "tool_area": "工具区承载面",
             }
             label = facility_labels.get(target_name, target_name)
+            support_mid = support.copy()
+            support_mid[2] = (float(safe_z) + float(support[2])) / 2
             result.extend([
                 Waypoint(f"辅臂接近{label}的稳定侧", np.array([support[0], support[1], safe_z]), False,
+                         f"stabilize-fixture({target_name})"),
+                Waypoint(f"辅臂沿{label}外侧分段下降", support_mid, False,
                          f"stabilize-fixture({target_name})"),
                 Waypoint(f"辅臂闭合夹爪并保持{label}", support, True,
                          f"stabilize-fixture({target_name})"),
@@ -741,7 +949,7 @@ def waypoints_from_plan(
             # The left gripper holds the wire at fixture + (-0.04, 0, 0.08).
             # Put the right gripper beside its exposed end: close enough to
             # communicate stripping, with a visible safety gap between wrists.
-            strip = np.array([fixture[0] + 0.040, fixture[1] - 0.145,
+            strip = np.array([fixture[0] + 0.040, fixture[1] - 0.180,
                               fixture[2] + grasp_offset + 0.015])
             result.extend([
                 Waypoint("右臂对准导线端部", np.array([strip[0], strip[1], safe_z]), False,
@@ -756,6 +964,17 @@ def waypoints_from_plan(
             item_name = step["args"][1]
             target = np.array(targets["terminal_slot"], dtype=float)
             target[2] = 0.07 + float(by_name[item_name]["size"][2]) + grasp_offset
+            if hazards and active_route:
+                strip_target = targets["wire_strip_station"]
+                result.append(Waypoint(
+                    "接线转运：先退到剥线工位设备侧等待位",
+                    np.array([min(0.82, strip_target[0] + 0.12),
+                              strip_target[1], safe_z]), True,
+                    f"insert-wire({item_name})"))
+                result.append(Waypoint(
+                    f"接线转运：再次经 {active_route} 外侧通道绕行",
+                    np.array([0.52, 0.38, 0.35]), True,
+                    f"insert-wire({item_name})", "left_arm", HOME_QS["left_arm"].copy()))
             result.extend([
                 Waypoint("左臂携带已剥线导线至端子上方", np.array([target[0], target[1], safe_z]), True,
                          f"insert-wire({item_name})"),

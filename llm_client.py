@@ -95,6 +95,29 @@ PDDL：
     return response.choices[0].message.content.strip()
 
 
+def generate_fill_hint(level: str, template: str, blank_label: str,
+                       local_hint: str, attempt: str = "") -> str:
+    """Give a bounded Socratic hint without revealing the missing token."""
+    client = _client()
+    prompt = f"""你是本科机器人PDDL课程助教，只回答本实验问题。
+题目难度：{level}
+PDDL填空模板：
+{template}
+当前空格：{blank_label}
+学生尝试：{attempt or '尚未填写'}
+课程提示依据：{local_hint}
+
+要求：
+1. 解释这个空格在带电区域安全规划中的作用；
+2. 给出寻找答案的方法或相似谓词例子；
+3. 不得直接输出本空格的完整答案；
+4. 不提供真实带电检修操作步骤；
+5. 只输出80字以内中文提示。"""
+    response = client.chat.completions.create(
+        model=_model(), messages=[{"role": "user", "content": prompt}], temperature=0.25)
+    return response.choices[0].message.content.strip()
+
+
 def generate_deep_explanation(
     topic: str,
     context: str,

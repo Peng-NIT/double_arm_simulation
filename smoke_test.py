@@ -1,8 +1,11 @@
 import numpy as np
 
-from lab_config import (FACILITIES, PRESETS, REGIONS, TARGETS, TASK_MODES, TASK_PROFILES,
-                        point_in_region, region_for_point)
-from planner import Intent, build_problem, intent_from_problem, make_plan, plan_as_text
+from lab_config import (ERROR_DEMOS, FACILITIES, POWER_LINES, PRESETS, REGIONS, TARGETS,
+                        TASK_MODES, TASK_PROFILES, adjust_hazard_zones,
+                        generate_hazard_zones, point_in_region, region_for_point)
+from lab_state import authenticated_role
+from planner import (Intent, build_problem, grade_pddl_blanks, intent_from_problem,
+                     make_plan, pddl_fill_exercise, plan_as_text)
 from robot_sim import HOME_QS, RobotSimulation, waypoints_from_plan
 
 
@@ -24,7 +27,8 @@ assert "_arm" in plan_as_text(make_plan([fuse], Intent(fuse["name"], "fuse_slot"
 for selected_arm in HOME_QS:
     fuse_plan = make_plan([fuse], Intent(fuse["name"], "fuse_slot"), selected_arm)
     assert {step["args"][0] for step in fuse_plan} == {selected_arm}
-    assert [step["action"] for step in fuse_plan][:3] == ["pick", "stage-component", "insert-component"]
+    assert [step["action"] for step in fuse_plan][:4] == [
+        "pick", "verify-safe-route", "stage-component", "insert-component"]
 
 sim = RobotSimulation([fuse])
 assert sim.model.nu == 12
@@ -46,11 +50,14 @@ assert fixture_bodies == ["fixture_fuse_slot"], fixture_bodies
 shield = make_item("绝缘护罩", "shield_1")
 shield_plan = make_plan([shield], Intent(shield["name"], "cover_area"))
 shield_actions = [step["action"] for step in shield_plan]
-assert shield_actions[:5] == ["pick", "stage-component", "stabilize-fixture", "assisted-cover", "release-fixture"]
+assert shield_actions[:7] == ["pick", "verify-safe-route", "stage-component",
+                              "verify-safe-route", "stabilize-fixture",
+                              "assisted-cover", "release-fixture"]
 shield_waypoints = waypoints_from_plan(shield_plan, [shield], TARGETS)
 shield_sim = RobotSimulation([shield], active_facility="cover_area")
 shield_q = {arm: q.copy() for arm, q in HOME_QS.items()}
-shield_assistant = shield_plan[2]["args"][0]
+shield_assistant = next(step["args"][0] for step in shield_plan
+                        if step["action"] == "stabilize-fixture")
 assistant_hold_q = None
 for waypoint in shield_waypoints:
     arm = waypoint.arm
@@ -137,6 +144,21 @@ assert "(:goal (operated rod_1 switch_point))" in rod_problem
 rod_actions = [step["action"] for step in make_plan([rod], Intent("rod_1", "switch_point"))]
 assert "operate-component" in rod_actions and "place" in rod_actions
 
+# Fill-in exercises must use the same goal semantics as the generated Problem.
+for exercise_kind, exercise_item, exercise_target, expected_predicate in (
+        ("fuse", "faulty_fuse_1", "fuse_slot", "at"),
+        ("probe", "probe_1", "test_point", "tested"),
+        ("operating_rod", "rod_1", "switch_point", "operated")):
+    exercise_intent = Intent(exercise_item, exercise_target)
+    basic = pddl_fill_exercise("基础", exercise_intent, exercise_kind)
+    assert f"(:goal ({expected_predicate} " in basic["template"]
+    advanced = pddl_fill_exercise("进阶", exercise_intent, exercise_kind)
+    score, checks = grade_pddl_blanks(advanced, ["hazard-mapped", expected_predicate])
+    assert score == 2 and all(checks)
+    challenge = pddl_fill_exercise("挑战", exercise_intent, exercise_kind, "route_right")
+    score, checks = grade_pddl_blanks(challenge, ["hazard-mapped", "route_right"])
+    assert score == 2 and all(checks)
+
 for dual_item, dual_target in [(shield, "cover_area"), (wire, "terminal_slot")]:
     try:
         make_plan([dual_item], Intent(dual_item["name"], dual_target), "left_arm")
@@ -164,7 +186,9 @@ for preset_name, preset in PRESETS.items():
     target = TASK_PROFILES[preset["kind"]]["facility"]
     arm_options = list(HOME_QS) if TASK_MODES[preset["kind"]] == "single" else [None]
     for selected_arm in arm_options:
-        plan = make_plan([item], Intent(item["name"], target), selected_arm)
+        task_hazards = generate_hazard_zones(target, 20261024, "高", item["position"])
+        route_choice = "route_right" if selected_arm == "right_arm" else "route_left"
+        plan = make_plan([item], Intent(item["name"], target), selected_arm, route_choice)
         plan_arms = {step["args"][0] for step in plan if step.get("args") and step["args"][0] in HOME_QS}
         expected_arms = {selected_arm} if selected_arm else {"left_arm", "right_arm"}
         assert plan_arms == expected_arms, (preset_name, selected_arm, plan_arms)
@@ -172,18 +196,25 @@ for preset_name, preset in PRESETS.items():
             assert any(step["action"] == "stabilize-fixture" for step in plan)
         if TASK_MODES[preset["kind"]] == "single":
             assert not any(step["action"] == "stabilize-fixture" for step in plan)
-        waypoints = waypoints_from_plan(plan, [item], TARGETS)
-        task_sim = RobotSimulation([item], active_facility=target if selected_arm is None else None)
+        waypoints = waypoints_from_plan(plan, [item], TARGETS, hazards=task_hazards)
+        task_sim = RobotSimulation(
+            [item], active_facility=target if selected_arm is None else None,
+            hazards=task_hazards)
         current = {arm: q.copy() for arm, q in HOME_QS.items()}
         fixture_hold = None
         fixture_arm = None
         for index, waypoint in enumerate(waypoints):
             arm = waypoint.arm
             other = "right_arm" if arm == "left_arm" else "left_arm"
-            next_q = (waypoint.joint_target.copy() if waypoint.joint_target is not None else
-                      task_sim.solve_ik(waypoint.position, current[arm], arm, current[other]))
+            try:
+                next_q = (waypoint.joint_target.copy() if waypoint.joint_target is not None else
+                          task_sim.solve_ik(waypoint.position, current[arm], arm, current[other]))
+            except Exception as exc:
+                raise AssertionError(
+                    f"{preset_name}/{selected_arm} step {index + 1} {waypoint.label}: {exc}") from exc
             issues = task_sim.validate_path(current[arm], next_q, 18, arm, current[other])
-            assert not issues, f"{preset_name}/{selected_arm} step {index + 1}: {issues}"
+            assert not issues, (f"{preset_name}/{selected_arm} step {index + 1} "
+                                f"{waypoint.label}: {issues}")
             task_sim.step_to(next_q, arm)
             if waypoint.pddl_action.startswith(("assisted-place(", "assisted-insert(",
                                                   "assisted-seat(", "assisted-cover(",
@@ -210,4 +241,64 @@ for preset_name, preset in PRESETS.items():
             expected = np.array([TARGETS[final_target][0], TARGETS[final_target][1],
                                  0.07 + item["size"][2]])
             assert np.linalg.norm(object_position - expected) < 0.015, (preset_name, selected_arm, object_position, expected)
+
+# The live-work volumes must affect execution rather than act as decoration.
+direct_item = make_item("熔断器", "direct_route_fuse")
+direct_hazards = generate_hazard_zones(
+    "fuse_slot", 20261024, "高", direct_item["position"])
+direct_plan = make_plan([direct_item], Intent(direct_item["name"], "fuse_slot"),
+                        "left_arm", "route_direct")
+direct_waypoints = waypoints_from_plan(
+    direct_plan, [direct_item], TARGETS, hazards=direct_hazards)
+direct_sim = RobotSimulation([direct_item], hazards=direct_hazards)
+direct_q = {arm: q.copy() for arm, q in HOME_QS.items()}
+direct_rejected = False
+for waypoint in direct_waypoints:
+    arm = waypoint.arm
+    other = "right_arm" if arm == "left_arm" else "left_arm"
+    target_q = (waypoint.joint_target.copy() if waypoint.joint_target is not None else
+                direct_sim.solve_ik(waypoint.position, direct_q[arm], arm, direct_q[other]))
+    issues = direct_sim.validate_path(direct_q[arm], target_q, 24, arm, direct_q[other])
+    if issues:
+        direct_rejected = any("带电教学禁止区" in issue for issue in issues)
+        break
+    direct_sim.step_to(target_q, arm)
+    if (waypoint.pddl_action.startswith("pick(") and waypoint.grip
+            and direct_sim.grabbed[arm] is None):
+        direct_sim.set_grab(direct_item["name"], arm)
+    direct_q[arm] = target_q
+assert direct_rejected, "active hazard did not reject route_direct"
+
+# Explicit feedback for the overhead conductor and role-gated teacher answers.
+line_sim = RobotSimulation([])
+original_ee = line_sim.ee_position
+line_sim.ee_position = lambda _arm: np.asarray(POWER_LINES[0]["start"], dtype=float)
+assert any("高压线" in issue for issue in line_sim.power_line_report("left_arm"))
+line_sim.ee_position = original_ee
+overhead_q = line_sim.solve_ik(
+    np.array([0.42, 0.55, 0.64]), HOME_QS["left_arm"],
+    "left_arm", HOME_QS["right_arm"])
+assert any(
+    (line_sim.step_to(q, "left_arm") is None and
+     line_sim.power_line_clearance("left_arm") <= 0.025)
+    for q in line_sim.interpolate(HOME_QS["left_arm"], overhead_q, 36))
+collision_q = np.array([1.4775, -0.5796, 2.4572, -1.1045, -1.1068, -0.0223])
+assert any(line_sim.collision_report(q, "left_arm", HOME_QS["right_arm"])
+           for q in line_sim.interpolate(HOME_QS["left_arm"], collision_q, 36))
+assert all(float(line["rgba"].split()[-1]) < 0.75 for line in POWER_LINES)
+assert authenticated_role("admin", "admin_123qwe") == "teacher"
+assert authenticated_role("student", "student_123qwe") == "student"
+assert authenticated_role("student", "wrong") is None
+
+# Manual live-zone controls derive from, but never mutate, seeded geometry.
+seeded_zone = generate_hazard_zones("fuse_slot", 88, "中", direct_item["position"])
+adjusted_zone = adjust_hazard_zones(
+    seeded_zone, offset_x=0.03, offset_y=-0.04,
+    scale_x=1.20, scale_y=0.85, margin_delta=0.01)
+assert adjusted_zone[0]["center"][0] == round(seeded_zone[0]["center"][0] + 0.03, 4)
+assert adjusted_zone[0]["center"][1] == round(seeded_zone[0]["center"][1] - 0.04, 4)
+assert adjusted_zone[0]["half_size"][0] == round(seeded_zone[0]["half_size"][0] * 1.20, 4)
+assert adjusted_zone[0]["half_size"][1] == round(seeded_zone[0]["half_size"][1] * 0.85, 4)
+assert seeded_zone[0]["safe_margin"] != adjusted_zone[0]["safe_margin"]
+assert set(ERROR_DEMOS) == {"direct_hazard", "overhead_line", "joint_collision"}
 print("dual-arm model, PDDL, wire task and teaching paths passed")
