@@ -6,7 +6,7 @@ st.set_page_config(page_title="强电检修机器人实验", page_icon="⚡", la
 require_login()
 init_state()
 
-st.title("⚡ 大语言模型驱动的电力系统维修机器人虚拟仿真实验")
+st.title("⚡ 大语言模型驱动带电作业机器人虚拟仿真实验")
 st.caption("自然语言 → PDDL任务分配 → 单/双臂6DOF规划 → MuJoCo仿真 → 轨迹分析")
 st.warning("本程序仅用于课程仿真，不构成真实带电检修的安全方案或控制系统。")
 
